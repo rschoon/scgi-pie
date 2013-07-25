@@ -578,8 +578,10 @@ static int load_headers(RequestObject *req) {
 }
 
 static PyObject *setup_environ(RequestObject *req) {
+    int https;
     char *itr;
     PyObject *environ;
+    PyObject *value_o;
 
     environ = Py_BuildValue("{sNsisisisOsOssssssssss}",
                             "wsgi.version", Py_BuildValue("(ii)", 1, 0),
@@ -595,25 +597,44 @@ static PyObject *setup_environ(RequestObject *req) {
                             "SERVER_PROTOCOL", "HTTP/1.1");
 
     for(itr = req->req.headers; *itr != '\0'; ) {
-        char *name;
-        PyObject *value;
-        int len;
+        char *name, *value;
+        int namelen, valuelen;
 
         /* name */
-        len = strlen(itr);
+        namelen = strlen(itr);
         name = itr;
-        itr += len + 1;
+        itr += namelen + 1;
 
         /* value */
-        len = strlen(itr);
+        valuelen = strlen(itr);
+        value = itr;
 
-        value = PyUnicode_DecodeLatin1(itr, len, "replace");    /* XXX latin1? */
-        PyDict_SetItemString(environ, name, value);
+        if(!strncmp(name, "HTTPS", namelen)) {
+            if(strncmp(value, "0", valuelen) && strncmp(value, "off", valuelen)) {
+                https = 1;
+            }
+        }
 
-        /* TODO other stuff */
+        value_o = PyUnicode_DecodeLatin1(value, valuelen, "replace");    /* XXX latin1? */
+        if(!strncmp(name, "HTTP_CONTENT_TYPE", namelen)) {
+            PyDict_SetItemString(environ, "CONTENT_TYPE", value_o);
+        } else if(!strncmp(name, "HTTP_CONTENT_LENGTH", namelen)) {
+            PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
+            req->req.input->size = strtol(value, NULL, 10);
+        } else if(!strncmp(name, "CONTENT_LENGTH", namelen)) {
+            PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
+            req->req.input->size = strtol(value, NULL, 10);
+        } else {
+            PyDict_SetItemString(environ, name, value_o);
+        }
 
-        itr += len + 1;
+        Py_DECREF(value_o);
+        itr += valuelen + 1;
     }
+
+    value_o = PyUnicode_FromString(https ? "https" : "http");
+    PyDict_SetItemString(environ, "wsgi.url_scheme", value_o);
+    Py_DECREF(value_o);
 
     req->req.environ = environ;
     return environ;
@@ -707,9 +728,9 @@ static void handle_request(RequestObject *req) {
 
     req->req.input = (InputObject *)PyObject_New(InputObject, &InputType);
     req->req.input->buffer = &req->req.buffer;
+    req->req.input->size = 0;
 
     req->resp.headers_sent = 0;
-
 
     environ = setup_environ(req);
     
@@ -747,8 +768,12 @@ static void handle_request(RequestObject *req) {
 
 static int buffer_do_read(PieBuffer *buffer, void *udata) {
     RequestObject *request = (RequestObject *)udata;
+    InputObject *input = request->req.input;
     char tmp[2048];
     ssize_t justread;
+
+    if(input != NULL && input->size > 0)
+        return -1;  /* EOF */
     
     justread = recv(request->fd, tmp, sizeof(tmp), 0);
     if(justread < 0) {
@@ -756,6 +781,9 @@ static int buffer_do_read(PieBuffer *buffer, void *udata) {
             return -1;
     } else
         pie_buffer_append(buffer, tmp, justread);
+
+    if(input != NULL)
+        input->size -= justread;
 
     return 0;
 }
@@ -945,6 +973,7 @@ void pie_main(void) {
 
     request->py_main_is = py_main_is;
     request->py_thr = py_thr;
+    request->req.input = NULL;
     request->req.headers = NULL;
     request->req.headers_space = 0;
     request->resp.headers_sent = 0;
