@@ -3,7 +3,9 @@ CFLAGS=@@CFLAGS@@
 LDFLAGS=@@LDFLAGS@@
 
 scgi-pie: scgi-pie.c pie.c buffer.c buffer.h scgi-pie.h Makefile
-	$(CC) scgi-pie.c pie.c buffer.c -pthread $(CFLAGS) $(LDFLAGS) -o $@
+	$(CC) scgi-pie.c pie.c buffer.c -pthread $(CFLAGS) $(LDFLAGS) -o $@.dbg
+	cp $@.dbg $@
+	strip $@
 
 clean:
 	rm -f scgi-pie
