@@ -181,14 +181,15 @@ static int pull_data(PieBuffer *buf) {
     return -1;
 }
 
-static void pull_data_until(PieBuffer *buf, size_t need) {
-    while(need > buf->data_size)
+static int pull_data_until(PieBuffer *buf, size_t need) {
+    while(need > buf->data_size - buf->offset)
         if(pull_data(buf) < 0)
-            break;
+            return -1;
+    return 0;
 }
 
 int pie_buffer_getchar(PieBuffer *buffer) {
-    pull_data_until(buffer, buffer->offset + 1);
+    pull_data_until(buffer, 1);
 
     if(buffer->buffer != NULL && buffer->offset <= buffer->data_size) {
         return buffer->buffer[buffer->offset++];
@@ -201,7 +202,7 @@ size_t pie_buffer_size(PieBuffer *buffer) {
 }
 
 ssize_t pie_buffer_getptr(PieBuffer *buffer, char **p, size_t len) {
-    pull_data_until(buffer, buffer->offset + len);
+    pull_data_until(buffer, len);
     
     if(buffer->data_size - buffer->offset == 0)
         return 0;
@@ -219,7 +220,7 @@ ssize_t pie_buffer_findnl(PieBuffer *buffer, size_t hint) {
     size_t i;
     
     if(hint > 0)
-        pull_data_until(buffer, buffer->offset + hint);
+        pull_data_until(buffer, hint);
 
     base = buffer->offset;
     do {
