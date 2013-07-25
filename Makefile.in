@@ -1,0 +1,11 @@
+
+CFLAGS=@@CFLAGS@@
+LDFLAGS=@@LDFLAGS@@
+
+scgi-pie: scgi-pie.c pie.c buffer.c buffer.h scgi-pie.h Makefile
+	$(CC) scgi-pie.c pie.c buffer.c -pthread $(CFLAGS) $(LDFLAGS) -o $@
+
+clean:
+	rm -f scgi-pie
+
+.PHONY: clean
