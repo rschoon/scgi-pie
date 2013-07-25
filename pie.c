@@ -435,6 +435,7 @@ static int request_send_headers(RequestObject *req) {
         request_write_raw(req, "\r\n", 2);
         Py_END_ALLOW_THREADS
     }
+    request_write_raw(req, "\r\n", 2);
     
     req->resp.headers_sent = 1;
  
@@ -709,6 +710,7 @@ static void handle_request(RequestObject *req) {
 
     req->resp.headers_sent = 0;
 
+
     environ = setup_environ(req);
     
     /* perform call */
@@ -736,6 +738,9 @@ static void handle_request(RequestObject *req) {
 
     req->req.input->buffer = NULL;
     Py_CLEAR(req->req.input);
+
+    req->resp.headers_sent = 1;
+    req->fd = -1;
 
     PyEval_ReleaseThread(req->py_thr);
 }
