@@ -45,7 +45,7 @@ static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
 }
 
 /*
- * Stdin Object
+ * Input Object
  */
 
 typedef struct {
@@ -197,7 +197,7 @@ static PyObject *input_iternext(InputObject *self) {
     return result;
 }
 
- static PyObject *stdin_getclosed(PyObject *self, void *closure) {
+ static PyObject *input_getclosed(PyObject *self, void *closure) {
     if(input_TypeCheck(self) && ((InputObject*)self)->buffer != NULL) {
         Py_INCREF(Py_False);
         return Py_False;
@@ -216,13 +216,13 @@ static PyMethodDef InputMethods[] = {
 };
 
 static PyGetSetDef InputGetSet[] = {
-    {"closed", (getter)stdin_getclosed, NULL, "is closed", NULL},
+    {"closed", (getter)input_getclosed, NULL, "is closed", NULL},
     {NULL}
 };
 
 static PyTypeObject InputType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    "scgi_pie.Stdin",          /*tp_name*/
+    "scgi_pie.Input",          /*tp_name*/
     sizeof(InputObject),       /*tp_basicsize*/
     0,                         /*tp_itemsize*/
     0,                         /*tp_dealloc*/
@@ -586,7 +586,7 @@ static PyObject *setup_environ(RequestObject *req) {
                             "wsgi.multiprocess", 1,  /* who knows ? */
                             "wsgi.run_once", 0,
                             "wsgi.errors", wsgi_stderr,
-                            "wsgi.stdin", req->req.input,
+                            "wsgi.input", req->req.input,
                             "SCRIPT_NAME", "",
                             "REQUEST_METHOD", "GET",
                             "PATH_INFO", "",
