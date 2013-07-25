@@ -1050,6 +1050,9 @@ void pie_main(void) {
             request->fd = fd;
             handle_request(request);
             close(fd);
+        } else if(errno != EMFILE && errno != ENFILE && errno != EINTR) {
+            perror("accept");
+            break;
         }
     }
 
