@@ -10,19 +10,14 @@
 
 #include "scgi-pie.h"
 
-struct global_state global_state = {
-    .app = NULL,
-    .unix_path = NULL,
-    .num_threads = 4,
-    .fd = -1,
-    .running = 1
-};
+struct global_state global_state;
 
 static struct option longopts[] = {
     { "num-threads",    required_argument,      NULL,       't' },
     { "fd",             required_argument,      NULL,       1000 },
     { "unix",           required_argument,      NULL,       's' },
     { "add-dirname-to-path", no_argument,       NULL,       1001 },
+    { "venv",           required_argument,      NULL,       1002 },
     { NULL,             0,              NULL,       0 }
 };
 
@@ -41,6 +36,11 @@ int main(int argc, char **argv) {
     int i;
     pthread_t *threads;
 
+    memset(&global_state, 0, sizeof(global_state));
+    global_state.num_threads = 4;
+    global_state.fd = -1;
+    global_state.running = 1;
+
     while ((ch = getopt_long(argc, argv, "s:t:", longopts, NULL)) != -1) {
         switch (ch) {   
             case 's':
@@ -54,6 +54,10 @@ int main(int argc, char **argv) {
                 break;
             case 1001:
                 global_state.add_dirname_to_path = 1;
+                break;
+            case 1002:
+                global_state.venv = strdup(optarg);
+                break;
             default:
                  usage();
         }
@@ -108,6 +112,7 @@ int main(int argc, char **argv) {
 
     free(threads);
     free(global_state.unix_path);
+    free(global_state.venv);
 
     return 0;
 }

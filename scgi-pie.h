@@ -2,6 +2,7 @@
 struct global_state {
     char *app;
     char *unix_path;
+    char *venv;
     int num_threads;
     int fd;
     int add_dirname_to_path;

@@ -874,6 +874,59 @@ static PyObject *new_blank_module(const char *name) {
     return m;
 }
 
+static void setup_venv(const char *path) {
+    PyObject *prefix = NULL, *executable = NULL;
+    PyObject *site = NULL, *method = NULL, *args = NULL, *result = NULL;
+
+    if(path == NULL)
+        return;
+
+    /*
+     * adjust sys so that site.py can do its work
+     */
+    prefix = PyUnicode_DecodeFSDefaultAndSize(path, strlen(path));
+    executable = PyUnicode_FromFormat("%U/bin/python", prefix);
+
+    PySys_SetObject("prefix", prefix);
+    PySys_SetObject("executable", executable);
+
+    Py_DECREF(prefix);
+    Py_DECREF(executable);
+
+    /*
+     * load site, which does other paths
+     */
+    site = PyImport_ImportModule("site");
+    if(site == NULL) {
+        PyErr_Print();
+        goto finish;
+    }
+
+    method = PyObject_GetAttrString(site, "main");
+    if(method == NULL) {
+        PyErr_Print();
+        goto finish;
+    }
+
+    args = Py_BuildValue("()");
+    if(args == NULL) {
+        PyErr_Print();
+        goto finish;
+    }
+
+    result = PyEval_CallObject(method, args);
+    if(result == NULL) {
+        PyErr_Print();
+        goto finish;
+    }
+
+finish:
+    Py_DECREF(method);
+    Py_DECREF(args);
+    Py_DECREF(result);
+    Py_DECREF(site);
+}
+
 static PyObject *load_app(const char *path) {
     FILE *f;
     const char *dirname_p;
@@ -942,6 +995,11 @@ static PyObject *load_app(const char *path) {
  */
 
 void pie_init(void) {
+    if(global_state.venv != NULL) {
+        Py_NoSiteFlag = 1;      /* site is loaded in setup_venv */
+        setenv("VIRTUAL_ENV", global_state.venv, 1);
+    }
+
     Py_InitializeEx(0);
     PyEval_InitThreads();
     
@@ -949,6 +1007,7 @@ void pie_init(void) {
     pie_module = init_module();
 
     PyThreadState_Swap(main_thr);
+    setup_venv(global_state.venv);
     application = load_app(global_state.app);
 
     wsgi_stderr = PySys_GetObject("stderr");
