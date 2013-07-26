@@ -544,7 +544,6 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
    
     Py_BEGIN_ALLOW_THREADS
     request_write_raw(req, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
-    /* TODO flush unless flag */
     Py_END_ALLOW_THREADS
 
     Py_DECREF(bytes);          /* to_pybytes_latin1 inc ref'd it */
@@ -782,7 +781,6 @@ static void send_result(RequestObject *req, PyObject *result) {
             Py_BEGIN_ALLOW_THREADS
             request_write_raw(req, PyBytes_AS_STRING(converted),
                                    PyBytes_GET_SIZE(converted));
-            /* TODO flush */
             Py_END_ALLOW_THREADS
 
             Py_DECREF(converted);
