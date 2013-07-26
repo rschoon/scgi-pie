@@ -1163,7 +1163,11 @@ void pie_main(void) {
             perror("accept");
             break;
         }
+
+        pie_buffer_restart(&request->req.buffer);
     }
+
+    pie_buffer_free_data(&request->req.buffer);
 
     PyEval_AcquireThread(main_thr);
     PyThreadState_Clear(request->py_thr);
