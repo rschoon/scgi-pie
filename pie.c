@@ -808,6 +808,7 @@ static void close_result(RequestObject *req, PyObject *result) {
 
         if(rv == NULL) {
             request_print_info(req, stderr);
+            PyErr_Print();
             PyErr_Clear();
         }
             
