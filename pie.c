@@ -149,6 +149,7 @@ static PieBuffer *input_get_buffer(PyObject *self) {
     result = ((InputObject*)self)->buffer;
     if(result == NULL)
         PyErr_SetString(PyExc_RuntimeError, "input object is closed (no buffer)");
+
     return result;
 }
 
@@ -272,7 +273,7 @@ static PyObject *input_iternext(InputObject *self) {
     return result;
 }
 
- static PyObject *input_getclosed(PyObject *self, void *closure) {
+static PyObject *input_getclosed(PyObject *self, void *closure) {
     if(input_TypeCheck(self) && ((InputObject*)self)->buffer != NULL) {
         Py_INCREF(Py_False);
         return Py_False;
@@ -883,7 +884,7 @@ static int buffer_do_read(PieBuffer *buffer, void *udata) {
     char tmp[2048];
     ssize_t justread;
 
-    if(input != NULL && input->size > 0)
+    if(input == NULL || input->size <= 0)
         return -1;  /* EOF */
     
     justread = recv(request->fd, tmp, sizeof(tmp), 0);
@@ -1055,7 +1056,6 @@ static PyObject *load_app(const char *path) {
 
     f = fopen(path, "r");
     if(f == NULL) {
-        printf("path: %s\n", path);
         perror("Open application failed");
         return get_fallback_app(1);
     }
