@@ -45,6 +45,80 @@ static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
 }
 
 /*
+ * Error Object
+ */
+
+typedef struct {
+    PyObject_HEAD
+} ErrorObject;
+
+static PyObject *error_write(PyObject *self, PyObject *args) {
+    const char *buf;
+
+    if(!PyArg_ParseTuple(args, "s", &buf))
+        return NULL;
+
+    fprintf(stderr, "%s", buf);
+    
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyMethodDef ErrorMethods[] = {
+    {"write", (PyCFunction)error_write, METH_VARARGS, "read"},
+    {NULL, NULL, 0, NULL},
+};
+
+
+static PyTypeObject ErrorType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "scgi_pie.Error",          /*tp_name*/
+    sizeof(ErrorObject),       /*tp_basicsize*/
+    0,                         /*tp_itemsize*/
+    0,                         /*tp_dealloc*/
+    0,                         /*tp_print*/
+    0,                         /*tp_getattr*/
+    0,                         /*tp_setattr*/
+    0,                         /*tp_compare*/
+    0,                         /*tp_repr*/
+    0,                         /*tp_as_number*/
+    0,                         /*tp_as_sequence*/
+    0,                         /*tp_as_mapping*/
+    0,                         /*tp_hash */
+    0,                         /*tp_call*/
+    0,                         /*tp_str*/
+    0,                         /*tp_getattro*/
+    0,                         /*tp_setattro*/
+    0,                         /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT,        /*tp_flags*/
+    "wsgi.error",              /*tp_doc */
+    0,                         /*tp_traverse */
+    0,                         /*tp_clear */
+    0,                         /*tp_richcompare */
+    0,                         /*tp_weaklistoffset */
+    0,                         /*tp_iter */
+    0,                         /*tp_iternext */
+    ErrorMethods,              /*tp_methods */
+    0,                         /*tp_members*/
+    0,                         /*tp_getset*/
+    0,                         /*tp_base*/
+    0,                         /*tp_dict*/
+    0,                         /*tp_descr_get*/
+    0,                         /*tp_descr_set*/
+    0,                         /*tp_dictoffset*/
+    0,                         /*tp_init*/
+    0,                         /*tp_alloc*/
+    PyType_GenericNew,         /*tp_new*/
+    0,                         /*tp_free*/
+    0,                         /*tp_is_gc*/
+};
+
+static int error_TypeCheck(PyObject *self) {
+    return PyObject_TypeCheck(self, &ErrorType);
+}
+
+
+/*
  * Input Object
  */
 
@@ -1010,10 +1084,8 @@ void pie_init(void) {
     setup_venv(global_state.venv);
     application = load_app(global_state.app);
 
-    wsgi_stderr = PySys_GetObject("stderr");
-    if(wsgi_stderr == NULL)
-        Py_FatalError("sys.stderr gave NULL");
-    Py_INCREF(wsgi_stderr);
+    wsgi_stderr = PyObject_New(ErrorObject, &ErrorType);
+    PySys_SetObject("stderr", wsgi_stderr);
 
     PyEval_ReleaseThread(main_thr);
 }
