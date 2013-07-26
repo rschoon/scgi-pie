@@ -1035,10 +1035,10 @@ static void setup_venv(const char *path) {
     }
 
 finish:
-    Py_DECREF(method);
-    Py_DECREF(args);
-    Py_DECREF(result);
-    Py_DECREF(site);
+    Py_XDECREF(method);
+    Py_XDECREF(args);
+    Py_XDECREF(result);
+    Py_XDECREF(site);
 }
 
 static PyObject *load_app(const char *path) {
