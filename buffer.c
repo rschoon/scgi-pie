@@ -162,8 +162,8 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     /* resize space */
     newsize = buffer->data_size + len;
     if(newsize >= buffer->buffer_size) {
-        buffer->buffer = realloc(buffer->buffer, len + buffer->data_size);
-        buffer->buffer_size = len + buffer->data_size;
+        buffer->buffer = realloc(buffer->buffer, len + buffer->data_size + 1);
+        buffer->buffer_size = len + buffer->data_size + 1;
     }  
     
     /* store */
