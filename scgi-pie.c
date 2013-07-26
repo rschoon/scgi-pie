@@ -21,6 +21,7 @@ static struct option longopts[] = {
     { "unix-mode",      required_argument,      NULL,       'M' },
     { "add-dirname-to-path", no_argument,       NULL,       1001 },
     { "venv",           required_argument,      NULL,       1002 },
+    { "no-venv",        no_argument,            NULL,       1003 },
     { NULL,             0,              NULL,       0 }
 };
 
@@ -66,6 +67,9 @@ int main(int argc, char **argv) {
             case 1002:
                 global_state.venv = strdup(optarg);
                 break;
+            case 1003:
+                global_state.no_venv = 1;
+                break;
             default:
                  usage();
         }
@@ -74,6 +78,11 @@ int main(int argc, char **argv) {
     argv += optind;
 
     global_state.app = argv[0];
+
+    if(global_state.no_venv && global_state.venv) {
+        fprintf(stderr, "Conflicting --no-venv and --venv flags given.\n");
+        exit(1);
+    }
 
     /*
      * Sockets

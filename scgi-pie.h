@@ -4,6 +4,7 @@ struct sp_global_state {
     char *unix_path;
     int unix_mode;
     char *venv;
+    int no_venv;
     int num_threads;
     int fd;
     int add_dirname_to_path;

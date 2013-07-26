@@ -1106,6 +1106,13 @@ static PyObject *load_app(const char *path) {
  */
 
 void pie_init(void) {
+    if(global_state.venv == NULL && !global_state.no_venv) {
+        /* try to guess from environment */
+        char *virtual_env = getenv("VIRTUAL_ENV");
+        if(virtual_env)
+            global_state.venv = strdup(virtual_env);
+    } 
+
     if(global_state.venv != NULL) {
         Py_NoSiteFlag = 1;      /* site is loaded in setup_venv */
         setenv("VIRTUAL_ENV", global_state.venv, 1);
