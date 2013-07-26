@@ -65,7 +65,7 @@ static PyObject *error_write(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef ErrorMethods[] = {
-    {"write", (PyCFunction)error_write, METH_VARARGS, "read"},
+    {"write", (PyCFunction)error_write, METH_VARARGS, "write"},
     {NULL, NULL, 0, NULL},
 };
 
@@ -113,10 +113,11 @@ static PyTypeObject ErrorType = {
     0,                         /*tp_is_gc*/
 };
 
+#if 0
 static int error_TypeCheck(PyObject *self) {
     return PyObject_TypeCheck(self, &ErrorType);
 }
-
+#endif
 
 /*
  * Input Object
@@ -609,6 +610,24 @@ static void realloc_headers(RequestObject *req, int size) {
     req->req.headers_space = size;
 }   
 
+static void request_print_info(RequestObject *req, FILE *out) {
+    if(req->req.environ != NULL) {
+        PyObject *value;
+
+        fprintf(out, "\n");
+
+        value = PyDict_GetItemString(req->req.environ, "SCRIPT_NAME");
+        if(value != NULL && PyUnicode_Check(value))
+            fprintf(out, "SN=%s ", PyUnicode_AsUTF8(value));
+
+        value = PyDict_GetItemString(req->req.environ, "PATH_INFO");
+        if(value != NULL && PyUnicode_Check(value))
+            fprintf(out, "PI=%s ", PyUnicode_AsUTF8(value));
+
+         fprintf(out, "\n");
+    }
+}
+
 static void send_error(RequestObject *req, const char *error) {
     static const char err_headers[] = "Status: 500 Internal Server Error\r\n"
                                    "Content-Type: text/plain\r\n\r\n";
@@ -735,14 +754,14 @@ static void send_result(RequestObject *req, PyObject *result) {
     int checked_send_headers = 0;
 
     if(result == NULL) {
-        /* TODO log stuff */
+        request_print_info(req, stderr);
         fprintf(stderr, "Somehow got NULL from application.\n");
         return;
     }             
 
     iter = PyObject_GetIter(result);
     if(iter == NULL) {
-        /* TODO log stuff */
+        request_print_info(req, stderr);
         fprintf(stderr, "Got a non-iterable from application:");
         PyErr_Print();
         return;
@@ -766,7 +785,7 @@ static void send_result(RequestObject *req, PyObject *result) {
             Py_DECREF(converted);
         } else {
             if(PyErr_Occurred() != NULL) {
-                /* TODO log stuff */
+                request_print_info(req, stderr);
                 PyErr_Print();
             }
         }
@@ -780,7 +799,7 @@ static void send_result(RequestObject *req, PyObject *result) {
         request_send_headers(req);
 }
 
-static void close_result(PyObject *result) {
+static void close_result(RequestObject *req, PyObject *result) {
     PyObject *method;
     PyObject *args;
     PyObject *rv;
@@ -791,7 +810,7 @@ static void close_result(PyObject *result) {
         rv = PyEval_CallObject(method, args);
 
         if(rv == NULL) {
-            /* TODO: log error */
+            request_print_info(req, stderr);
             PyErr_Clear();
         }
             
@@ -829,12 +848,12 @@ static void handle_request(RequestObject *req) {
     arglist = Py_BuildValue("(OO)", environ, start_response);
     result = PyObject_CallObject(application, arglist);
     if(PyErr_Occurred() != NULL) {
-        /* TODO write path_info etc */
+        request_print_info(req, stderr);
         PyErr_Print();
         send_error(req, "uncaught exception");
     } else {
         send_result(req, result);
-        close_result(result);
+        close_result(req, result);
     }
 
     /* clean up */
@@ -925,6 +944,9 @@ static struct PyModuleDef ModuleDef = {
 
 static PyObject *init_module(void) {
     PyObject *m;
+
+    if(PyType_Ready(&ErrorType) < 0)
+        return NULL;
 
     if(PyType_Ready(&RequestType) < 0)
         return NULL;
