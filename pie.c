@@ -35,6 +35,7 @@ static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
                         "but got non-latin1 unicode", name);
             return NULL;
         }
+        return o;
     } else {
         PyErr_Format(PyExc_TypeError, "expected %s to be a byte string, but got %s",
             name, o->ob_type->tp_name);
