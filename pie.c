@@ -479,6 +479,7 @@ static int request_send_headers(RequestObject *req) {
     /* send status */
     request_write_raw(req, "Status: ", 8);
     request_write_raw(req, PyBytes_AS_STRING(status), PyBytes_GET_SIZE(status));
+    request_write_raw(req, "\r\n", 2);
 
     /* send rest headers */
     for(i = 0; i < PyList_Size(headers); i++) {
