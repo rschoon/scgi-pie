@@ -884,7 +884,7 @@ static int buffer_do_read(PieBuffer *buffer, void *udata) {
     char tmp[2048];
     ssize_t justread;
 
-    if(input == NULL || input->size <= 0)
+    if(input != NULL && input->size <= 0)
         return -1;  /* EOF */
     
     justread = recv(request->fd, tmp, sizeof(tmp), 0);
