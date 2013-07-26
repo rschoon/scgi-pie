@@ -689,7 +689,7 @@ static int load_headers(RequestObject *req) {
 }
 
 static PyObject *setup_environ(RequestObject *req) {
-    int https;
+    int https = 0;
     char *itr;
     PyObject *environ;
     PyObject *value_o;
