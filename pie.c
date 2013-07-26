@@ -857,9 +857,9 @@ static void handle_request(RequestObject *req) {
     }
 
     /* clean up */
-    Py_DECREF(start_response);
-    Py_DECREF(result);
-    Py_DECREF(arglist);
+    Py_XDECREF(start_response);
+    Py_XDECREF(result);
+    Py_XDECREF(arglist);
 
     Py_CLEAR(req->req.environ);
     Py_CLEAR(req->resp.status);
