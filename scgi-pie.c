@@ -1,6 +1,7 @@
 
 #include <getopt.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,7 @@
 
 #include "scgi-pie.h"
 
-struct global_state global_state;
+struct sp_global_state global_state;
 
 static struct option longopts[] = {
     { "num-threads",    required_argument,      NULL,       't' },
@@ -30,11 +31,12 @@ void pie_main(void);
 void pie_finish(void);
 static void* thread_start(void *arg);
 static int create_unix_socket(void);
+static void ignore_signal(int sig);
+static void register_signal(int sig);
 
 int main(int argc, char **argv) {
     int ch;
     int i;
-    pthread_t *threads;
 
     memset(&global_state, 0, sizeof(global_state));
     global_state.num_threads = 4;
@@ -90,34 +92,40 @@ int main(int argc, char **argv) {
     }
 
     /*
+     * Process configuration
+     */
+
+    ignore_signal(SIGPIPE);
+    register_signal(SIGINT);
+    register_signal(SIGTERM);
+
+    /*
      * Create threads
      */
 
     pie_init();
 
-    threads = malloc(sizeof(pthread_t)*global_state.num_threads);
+    global_state.threads = malloc(sizeof(pthread_t)*global_state.num_threads);
     for(i = 0; i < global_state.num_threads; i++)
-        pthread_create(&threads[i], NULL, thread_start, NULL);
+        pthread_create(&global_state.threads[i], NULL, thread_start, NULL);
 
     /*
      * Wait for threads
      */
 
     for(i = 0; i < global_state.num_threads; i++)
-        pthread_join(threads[i], NULL);
+        pthread_join(global_state.threads[i], NULL);
 
     /*
      * Misc cleanup
      */
 
-    free(threads);
+    free(global_state.threads);
     free(global_state.unix_path);
     free(global_state.venv);
 
     return 0;
 }
-
-
 
 static void* thread_start(void *arg) {
     pie_main();
@@ -166,3 +174,46 @@ finish:
     return s;
 }
 
+/*
+ * Signals
+ */
+
+static void signal_handler(int signum) {
+    int h;
+
+    switch(signum) {
+        case SIGINT:
+        case SIGTERM:
+            /* any thread might have recieved this */
+
+            if(global_state.running) {
+                global_state.running = 0;
+
+                /* force any in progress accept() calls to interrupt */
+                for(h = 0; h < global_state.num_threads; h++)
+                    pthread_kill(global_state.threads[h], SIGINT);
+            }
+
+            break;
+    }
+}
+
+static void ignore_signal(int signum) {
+    struct sigaction siga;
+
+    siga.sa_handler = SIG_IGN;
+    sigemptyset(&siga.sa_mask);
+    siga.sa_flags = 0;
+
+    sigaction(signum, &siga, NULL);
+}
+
+static void register_signal(int signum) {
+    struct sigaction siga;
+
+    siga.sa_handler = signal_handler;
+    sigemptyset(&siga.sa_mask);
+    siga.sa_flags = 0;
+
+    sigaction(signum, &siga, NULL);
+}
