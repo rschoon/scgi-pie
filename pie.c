@@ -605,8 +605,7 @@ static void realloc_headers(RequestObject *req, int size) {
     if(size < 256)
         size = 256;
 
-    free(req->req.headers);
-    req->req.headers = malloc(size);
+    req->req.headers = realloc(req->req.headers, size);
     req->req.headers_space = size;
 }   
 
