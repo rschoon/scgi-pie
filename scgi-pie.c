@@ -26,7 +26,20 @@ static struct option longopts[] = {
 };
 
 static void usage(void) {
-    fprintf(stderr, "...\n");
+    fprintf(stderr, "Usage: <flags> <app.wsgi>\n"
+        "\nProcess Options:\n"
+        "--num-threads <num>\n"
+        "-t <num>               Number of threads to spawn (defaults to 4)\n"
+        "--fd <num>             File descriptor to inherit listen socket from.\n"
+        "                       Use with tool such as spawn-fcgi\n"
+        "--unix <path>\n"
+        "-s <path>              Bind to Unix domain socket on path\n"
+        "-M <mode>              Change Unix doman socket path mode\n"
+        "\nPython Options:\n"
+        "--add-dirname-to-path  Add path of wsgi app to sys.path\n"
+        "--venv <path>          Use path as python virtual environment\n"
+        "--no-venv              Don't attempt to guess current virtual environment\n"
+    );
 }
 
 void pie_init(void);
@@ -71,7 +84,8 @@ int main(int argc, char **argv) {
                 global_state.no_venv = 1;
                 break;
             default:
-                 usage();
+                usage();
+                exit(1);
         }
     }
     argc -= optind;
