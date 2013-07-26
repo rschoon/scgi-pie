@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -17,6 +18,7 @@ static struct option longopts[] = {
     { "num-threads",    required_argument,      NULL,       't' },
     { "fd",             required_argument,      NULL,       1000 },
     { "unix",           required_argument,      NULL,       's' },
+    { "unix-mode",      required_argument,      NULL,       'M' },
     { "add-dirname-to-path", no_argument,       NULL,       1001 },
     { "venv",           required_argument,      NULL,       1002 },
     { NULL,             0,              NULL,       0 }
@@ -41,10 +43,14 @@ int main(int argc, char **argv) {
     memset(&global_state, 0, sizeof(global_state));
     global_state.num_threads = 4;
     global_state.fd = -1;
+    global_state.unix_mode = -1;
     global_state.running = 1;
 
-    while ((ch = getopt_long(argc, argv, "s:t:", longopts, NULL)) != -1) {
-        switch (ch) {   
+    while ((ch = getopt_long(argc, argv, "M:s:t:", longopts, NULL)) != -1) {
+        switch (ch) {
+            case 'M':
+                global_state.unix_mode = strtol(optarg, NULL, 8);
+                break;
             case 's':
                 global_state.unix_path = strdup(optarg);
                 break;
@@ -157,6 +163,13 @@ static int create_unix_socket(void) {
     if(bind(s, (struct sockaddr *)sockinfo, socklen) < 0) {
         perror("bind");
         goto error;
+    }
+
+    if(global_state.unix_mode >= 0) {
+        if(chmod(global_state.unix_path, global_state.unix_mode) < 0) {
+            perror("chmod");
+            goto error;
+        }
     }
 
     if(listen(s, SOMAXCONN) < 0) {

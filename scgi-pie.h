@@ -2,6 +2,7 @@
 struct sp_global_state {
     char *app;
     char *unix_path;
+    int unix_mode;
     char *venv;
     int num_threads;
     int fd;
