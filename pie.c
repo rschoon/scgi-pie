@@ -23,6 +23,11 @@ static int request_TypeCheck(PyObject *self);
  */
 
 static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
+    if(PyBytes_Check(o)) {
+        Py_INCREF(o);
+        return o;
+    }
+
     if(PyUnicode_Check(o)) {
         o = PyUnicode_AsLatin1String(o);
         if(!o) {
@@ -31,17 +36,11 @@ static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
             return NULL;
         }
     } else {
-        Py_INCREF(o);
-    }
-
-    if (!PyBytes_Check(o)) {
         PyErr_Format(PyExc_TypeError, "expected %s to be a byte string, but got %s",
             name, o->ob_type->tp_name);
         Py_DECREF(o);
         return NULL;
     }
-  
-    return o;
 }
 
 /*
