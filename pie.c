@@ -1069,8 +1069,7 @@ static PyObject *load_app(const char *path) {
         if(dirname_p == NULL)
             pth_to_add = PyUnicode_DecodeUTF8(".", 1, "replace");
         else
-            /* TODO: We need to figure out FS encoding or something here */
-            pth_to_add = PyUnicode_DecodeUTF8(path, dirname_p - path, "replace");
+            pth_to_add = PyUnicode_DecodeFSDefaultAndSize(path, dirname_p - path);
 
         PyList_Insert(pth, 0, pth_to_add);
         Py_DECREF(pth_to_add);
