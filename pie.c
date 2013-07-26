@@ -499,8 +499,10 @@ static int request_send_headers(RequestObject *req) {
             return -1;
      
         value = to_pybytes_latin1(value, "header value");
-        if(value == NULL)
+        if(value == NULL) {
+            Py_DECREF(name);
             return -1;
+        }
     
         Py_BEGIN_ALLOW_THREADS
         request_write_raw(req, PyBytes_AS_STRING(name), PyBytes_GET_SIZE(name));
@@ -508,6 +510,9 @@ static int request_send_headers(RequestObject *req) {
         request_write_raw(req, PyBytes_AS_STRING(value), PyBytes_GET_SIZE(value));
         request_write_raw(req, "\r\n", 2);
         Py_END_ALLOW_THREADS
+
+        Py_DECREF(name);
+        Py_DECREF(value);
     }
     request_write_raw(req, "\r\n", 2);
     
