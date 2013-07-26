@@ -1085,7 +1085,7 @@ void pie_init(void) {
     setup_venv(global_state.venv);
     application = load_app(global_state.app);
 
-    wsgi_stderr = PyObject_New(ErrorObject, &ErrorType);
+    wsgi_stderr = (PyObject*)PyObject_New(ErrorObject, &ErrorType);
     PySys_SetObject("stderr", wsgi_stderr);
 
     PyEval_ReleaseThread(main_thr);
