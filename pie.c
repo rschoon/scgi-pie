@@ -610,7 +610,21 @@ static void realloc_headers(RequestObject *req, int size) {
 }   
 
 static void send_error(RequestObject *req, const char *error) {
-    
+    static const char err_headers[] = "Status: 500 Internal Server Error\r\n"
+                                   "Content-Type: text/plain\r\n\r\n";
+    static const char err_body[] = "An internal server error has occured.\r\n\r\n";
+
+    if(!req->resp.headers_sent) {
+        request_write_raw(req, err_headers, sizeof(err_headers)-1);
+        req->resp.headers_sent = 1;
+    }
+
+    request_write_raw(req, err_body, sizeof(err_body)-1);
+
+    if(error != NULL) {
+        request_write_raw(req, error, strlen(error));
+        request_write_raw(req, "\r\n", 2);
+    }
 }
 
 static int load_headers(RequestObject *req) {
