@@ -600,8 +600,8 @@ static int request_TypeCheck(PyObject *self) {
 }
 
 static void realloc_headers(RequestObject *req, int size) {
-    if(size < 256)
-        size = 256;
+    if(size < 1024)
+        size = 1024;
 
     req->req.headers = realloc(req->req.headers, size);
     req->req.headers_space = size;
@@ -1162,9 +1162,16 @@ void pie_main(void) {
             break;
         }
 
+        /* free larger allocations */
         pie_buffer_restart(&request->req.buffer);
+        if(request->req.headers_space > 4096) {
+            free(request->req.headers);
+            request->req.headers = NULL;
+            request->req.headers_space = 0;
+        }
     }
 
+    free(request->req.headers);
     pie_buffer_free_data(&request->req.buffer);
 
     PyEval_AcquireThread(main_thr);
