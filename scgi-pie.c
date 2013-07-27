@@ -124,6 +124,8 @@ int main(int argc, char **argv) {
      * Process configuration
      */
 
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     ignore_signal(SIGPIPE);
     register_signal(SIGINT);
     register_signal(SIGTERM);
