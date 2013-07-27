@@ -127,23 +127,35 @@ int main(int argc, char **argv) {
     ignore_signal(SIGPIPE);
     register_signal(SIGINT);
     register_signal(SIGTERM);
+    register_signal(SIGHUP);
 
     /*
-     * Create threads
+     * Main
      */
 
-    pie_init();
+    do {
+        global_state.reloading = 0;
+        global_state.running = 1;
 
-    global_state.threads = malloc(sizeof(pthread_t)*global_state.num_threads);
-    for(i = 0; i < global_state.num_threads; i++)
-        pthread_create(&global_state.threads[i], NULL, thread_start, NULL);
+        /*
+         * Init/Run
+         */
 
-    /*
-     * Wait for threads
-     */
+        pie_init();
 
-    for(i = 0; i < global_state.num_threads; i++)
-        pthread_join(global_state.threads[i], NULL);
+        global_state.threads = malloc(sizeof(pthread_t)*global_state.num_threads);
+        for(i = 0; i < global_state.num_threads; i++)
+            pthread_create(&global_state.threads[i], NULL, thread_start, NULL);
+
+        /*
+         * Finish
+         */
+
+        for(i = 0; i < global_state.num_threads; i++)
+            pthread_join(global_state.threads[i], NULL);
+        pie_finish();
+
+    } while(global_state.reloading);
 
     /*
      * Misc cleanup
@@ -218,6 +230,10 @@ static void signal_handler(int signum) {
     int h;
 
     switch(signum) {
+        case SIGHUP:
+            global_state.reloading = 1;
+
+            /* FALLTHROUGH */
         case SIGINT:
         case SIGTERM:
             /* any thread might have recieved this */
@@ -231,6 +247,7 @@ static void signal_handler(int signum) {
             }
 
             break;
+
     }
 }
 

@@ -11,6 +11,7 @@ struct sp_global_state {
 
     pthread_t *threads;
     int running;
+    int reloading;
 };
 
 extern struct sp_global_state scgipie_global_state;
