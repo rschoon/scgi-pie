@@ -1191,5 +1191,6 @@ void pie_main(void) {
 }
 
 void pie_finish(void) {
+    PyEval_AcquireThread(main_thr);
     Py_Finalize();
 }
