@@ -1,16 +1,21 @@
 
+SRC = scgi-pie.c pie.c buffer.c
+HEADERS = buffer.h scgi-pie.h
+
 INSTALL?=install
 CFLAGS=@@CFLAGS@@
 LDFLAGS=@@LDFLAGS@@
 
-@@NAME@@: scgi-pie.c pie.c buffer.c buffer.h scgi-pie.h Makefile
-	$(CC) scgi-pie.c pie.c buffer.c -pthread $(CFLAGS) $(LDFLAGS) -o $@
+OBJ = $(SRC:.c=.o)
+
+@@NAME@@: $(OBJ)
+	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
 install:
 	$(INSTALL) -s @@NAME@@ @@BINDIR@@
 	@if [ ! -e @@LINK_NAME@@ ]; then ln -s @@BINDIR@@/@@NAME@@ @@BINDIR@@/@@LINK_NAME@@; fi
 
 clean:
-	rm -f @@NAME@@
+	rm -f @@NAME@@ $(OBJ)
 
 .PHONY: clean install
