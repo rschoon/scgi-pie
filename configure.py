@@ -41,12 +41,14 @@ mkvar['BINDIR'] = args.bindir or os.path.join(mkvar['PREFIX'], 'bin')
 # binary name
 #
 
+mkvar['NAME'] = 'scgi-pie'
 if is_venv:
-    mkvar['NAME'] = 'scgi-pie'
-    mkvar['LINK_NAME'] = 'scgi-pie'
+    mkvar['INSTALL_NAME'] = 'scgi-pie'
+    mkvar['LN_COMMAND'] = ''
 else:
-    mkvar['NAME'] = 'scgi-pie'+pyver
-    mkvar['LINK_NAME'] = 'scgi-pie'
+    mkvar['INSTALL_NAME'] = 'scgi-pie'+pyver
+    mkvar['LN_COMMAND'] = 'ln -s %s %s'%(os.path.join(mkvar['BINDIR'], 'scgi-pie'+pyver),
+                                         os.path.join(mkvar['BINDIR'], 'scgi-pie'))
 
 #
 # cflags

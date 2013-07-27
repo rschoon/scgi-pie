@@ -12,8 +12,8 @@ OBJ = $(SRC:.c=.o)
 	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
 install:
-	$(INSTALL) -s @@NAME@@ @@BINDIR@@
-	@if [ ! -e @@LINK_NAME@@ ]; then ln -s @@BINDIR@@/@@NAME@@ @@BINDIR@@/@@LINK_NAME@@; fi
+	$(INSTALL) -s @@NAME@@ @@BINDIR@@/@@INSTALL_NAME@@
+	@@LN_COMMAND@@
 
 clean:
 	rm -f @@NAME@@ $(OBJ)
