@@ -1,11 +1,33 @@
 #!/usr/bin/env python3
 
+import argparse
 import re
 import sys
 import sysconfig
+import os
 
 pyver = sysconfig.get_config_var('VERSION')
 getvar = sysconfig.get_config_var
+
+mkvar = {}      # makefile variables
+
+#
+# Args
+#
+
+parser = argparse.ArgumentParser(description='configure build')
+parser.add_argument('--prefix', dest='prefix', default='/usr/local')
+parser.add_argument('--bindir', dest='bindir')
+
+args = parser.parse_args()
+
+#
+# install paths
+#
+
+mkvar['PREFIX'] = args.prefix
+mkvar['BINDIR'] = args.bindir or os.path.join(args.prefix, 'bin')
+
 
 #
 # cflags
@@ -14,7 +36,7 @@ getvar = sysconfig.get_config_var
 flags = ['-I' + sysconfig.get_path('include'),
          '-I' + sysconfig.get_path('platinclude') ]
 flags.extend(getvar('CFLAGS').split())
-flags = ' '.join(flags)
+mkvar['CFLAGS'] = ' '.join(flags)
 
 #
 # libs
@@ -22,14 +44,14 @@ flags = ' '.join(flags)
 
 libs = getvar('LIBS').split() + getvar('SYSLIBS').split()
 libs.append('-lpython' + pyver + sys.abiflags)
-libs = ' '.join(libs)
+mkvar['LDFLAGS'] = ' '.join(libs)
 
 #
 #
 #
 
-print("cflags: %s"%flags)
-print("ldflags: %s"%libs)
+print("cflags: %s"%mkvar['CFLAGS'])
+print("ldflags: %s"%mkvar['LDFLAGS'])
 
 with open("Makefile.in", "r") as fin:
     with open("Makefile", "w") as fout:
@@ -37,10 +59,15 @@ with open("Makefile.in", "r") as fin:
         last = 0
         for m in re.finditer(r"(@@(?P<name>.*?)@@)", text):
             fout.write(text[last:m.start()])
-            if m.group("name") == "CFLAGS":
-                fout.write(flags)
-            elif m.group("name") == "LDFLAGS":
-                fout.write(libs)
+
+            name = m.group("name")
+            value = mkvar.get(name)
+            if value is not None:
+                fout.write(value)
+            else:
+                print("*** Unknown var: %s\n"%name)
+                fout.write("@@%s@@"%name)
+
             last = m.end()
         fout.write(text[last:])
 
