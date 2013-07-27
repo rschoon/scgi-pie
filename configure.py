@@ -94,3 +94,5 @@ with open("Makefile.in", "r") as fin:
         fout.write(text[last:])
 
 print("\nMakefile written.")
+
+os.system("make clean")
