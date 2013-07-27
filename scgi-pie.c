@@ -134,6 +134,8 @@ int main(int argc, char **argv) {
      */
 
     do {
+        printf("Starting...\n");
+
         global_state.reloading = 0;
         global_state.running = 1;
 
@@ -154,7 +156,6 @@ int main(int argc, char **argv) {
         for(i = 0; i < global_state.num_threads; i++)
             pthread_join(global_state.threads[i], NULL);
         pie_finish();
-
     } while(global_state.reloading);
 
     /*
