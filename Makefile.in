@@ -1,14 +1,16 @@
 
+INSTALL?=install
 CFLAGS=@@CFLAGS@@
 LDFLAGS=@@LDFLAGS@@
 
-scgi-pie: scgi-pie.c pie.c buffer.c buffer.h scgi-pie.h Makefile
+@@NAME@@: scgi-pie.c pie.c buffer.c buffer.h scgi-pie.h Makefile
 	$(CC) scgi-pie.c pie.c buffer.c -pthread $(CFLAGS) $(LDFLAGS) -o $@
 
 install:
-	$(INSTALL) scgi-pie @@BINDIR@@
+	$(INSTALL) -s @@NAME@@ @@BINDIR@@
+	@if [ ! -e @@LINK_NAME@@ ]; then ln -s @@BINDIR@@/@@NAME@@ @@BINDIR@@/@@LINK_NAME@@; fi
 
 clean:
-	rm -f scgi-pie
+	rm -f @@NAME@@
 
 .PHONY: clean install

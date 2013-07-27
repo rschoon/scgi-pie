@@ -8,6 +8,7 @@ import os
 
 pyver = sysconfig.get_config_var('VERSION')
 getvar = sysconfig.get_config_var
+is_venv = sys.base_prefix != sys.prefix
 
 mkvar = {}      # makefile variables
 
@@ -16,7 +17,7 @@ mkvar = {}      # makefile variables
 #
 
 parser = argparse.ArgumentParser(description='configure build')
-parser.add_argument('--prefix', dest='prefix', default='/usr/local')
+parser.add_argument('--prefix', dest='prefix')
 parser.add_argument('--bindir', dest='bindir')
 
 args = parser.parse_args()
@@ -25,9 +26,27 @@ args = parser.parse_args()
 # install paths
 #
 
-mkvar['PREFIX'] = args.prefix
-mkvar['BINDIR'] = args.bindir or os.path.join(args.prefix, 'bin')
+print(args.prefix, sys.exec_prefix, sys.prefix)
 
+if args.prefix is None:
+    if is_venv:
+        mkvar['PREFIX'] = sys.exec_prefix
+    else:
+        mkvar['PREFIX'] = '/usr/local'
+else:
+    mkvar['PREFIX'] = args.prefix
+mkvar['BINDIR'] = args.bindir or os.path.join(mkvar['PREFIX'], 'bin')
+
+#
+# binary name
+#
+
+if is_venv:
+    mkvar['NAME'] = 'scgi-pie'
+    mkvar['LINK_NAME'] = 'scgi-pie'
+else:
+    mkvar['NAME'] = 'scgi-pie'+pyver
+    mkvar['LINK_NAME'] = 'scgi-pie'
 
 #
 # cflags
@@ -52,6 +71,7 @@ mkvar['LDFLAGS'] = ' '.join(libs)
 
 print("cflags: %s"%mkvar['CFLAGS'])
 print("ldflags: %s"%mkvar['LDFLAGS'])
+print("prefix: %s"%mkvar['PREFIX'])
 
 with open("Makefile.in", "r") as fin:
     with open("Makefile", "w") as fout:
