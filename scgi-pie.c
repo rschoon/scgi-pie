@@ -51,8 +51,7 @@ static int create_unix_socket(void);
 static void ignore_signal(int sig);
 static void register_signal(int sig);
 
-pthread_cond_t shutdown_cond;
-pthread_mutex_t shutdown_cond_mutex;
+int shutdown_signal[2];
 
 int main(int argc, char **argv) {
     int ch;
@@ -128,8 +127,10 @@ int main(int argc, char **argv) {
      * Process configuration
      */
 
-    pthread_cond_init(&shutdown_cond, NULL);
-    pthread_mutex_init(&shutdown_cond_mutex, NULL);
+    if(socketpair(AF_UNIX, SOCK_STREAM, 0, shutdown_signal) < 0) {
+        perror("socketpair");
+        exit(1);
+    }
 
     ignore_signal(SIGPIPE);
     register_signal(SIGINT);
@@ -141,6 +142,8 @@ int main(int argc, char **argv) {
      */
 
     do {
+        char byte;
+
         printf("Starting...\n");
 
         global_state.reloading = 0;
@@ -161,7 +164,7 @@ int main(int argc, char **argv) {
          */
 
         while(global_state.running)
-            pthread_cond_wait(&shutdown_cond, &shutdown_cond_mutex);
+            recv(shutdown_signal[1], &byte, sizeof(byte), 0);
 
         shutdown_threads();
         pie_finish();
@@ -171,8 +174,8 @@ int main(int argc, char **argv) {
      * Misc cleanup
      */
 
-    pthread_cond_destroy(&shutdown_cond);
-    pthread_mutex_destroy(&shutdown_cond_mutex);
+    close(shutdown_signal[0]);
+    close(shutdown_signal[1]);
 
     free(global_state.threads);
     free(global_state.unix_path);
@@ -253,6 +256,8 @@ finish:
  */
 
 static void signal_handler(int signum) {
+    char byte = 0;
+
     switch(signum) {
         case SIGHUP:
             global_state.reloading = 1;
@@ -264,10 +269,7 @@ static void signal_handler(int signum) {
 
             if(global_state.running) {
                 global_state.running = 0;
-
-                pthread_mutex_lock(&shutdown_cond_mutex);
-                pthread_cond_signal(&shutdown_cond);
-                pthread_mutex_unlock(&shutdown_cond_mutex);
+                send(shutdown_signal[0], &byte, sizeof(byte), 0);
             }
 
             break;
