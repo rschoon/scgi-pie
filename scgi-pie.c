@@ -1,6 +1,5 @@
 
 #include <getopt.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,9 +41,6 @@ static void usage(void) {
     );
 }
 
-void pie_init(void);
-void pie_main(void);
-void pie_finish(void);
 static void* thread_start(void *arg);
 static void shutdown_threads(void);
 static int create_unix_socket(void);
@@ -155,9 +151,12 @@ int main(int argc, char **argv) {
 
         pie_init();
 
-        global_state.threads = malloc(sizeof(pthread_t)*global_state.num_threads);
-        for(i = 0; i < global_state.num_threads; i++)
-            pthread_create(&global_state.threads[i], NULL, thread_start, NULL);
+        global_state.threads = calloc(global_state.num_threads, sizeof(struct thread_data));
+        for(i = 0; i < global_state.num_threads; i++) {
+            pthread_cond_init(&global_state.threads[i].dead_cond, NULL);
+            pthread_mutex_init(&global_state.threads[i].dead_mutex, NULL);
+            pthread_create(&global_state.threads[i].thread, NULL, thread_start, &global_state.threads[i]);
+        }
 
         /*
          * Finish
@@ -168,6 +167,8 @@ int main(int argc, char **argv) {
 
         shutdown_threads();
         pie_finish();
+
+        free(global_state.threads);
     } while(global_state.reloading);
 
     /*
@@ -177,7 +178,6 @@ int main(int argc, char **argv) {
     close(shutdown_signal[0]);
     close(shutdown_signal[1]);
 
-    free(global_state.threads);
     free(global_state.unix_path);
     free(global_state.venv);
 
@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
 }
 
 static void* thread_start(void *arg) {
-    pie_main();
+    pie_main((struct thread_data *)arg);
     return NULL;
 }
 
@@ -194,11 +194,15 @@ static void shutdown_threads(void) {
 
     /* force any in progress accept() calls to interrupt */
     for(i = 0; i < global_state.num_threads; i++)
-        pthread_kill(global_state.threads[i], SIGINT);
+        pthread_kill(global_state.threads[i].thread, SIGINT);
+
+    /* try to signal python to stop too */
+    for(i = 0; i < global_state.num_threads; i++)
+        pie_signal_stop(&global_state.threads[i]);
 
     /* join */
     for(i = 0; i < global_state.num_threads; i++)
-        pthread_join(global_state.threads[i], NULL);
+        pthread_join(global_state.threads[i].thread, NULL);
 
 }
 

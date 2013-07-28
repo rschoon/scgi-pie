@@ -1,4 +1,17 @@
 
+#include <pthread.h>
+#include <Python.h>
+
+struct thread_data {
+    pthread_t thread;
+
+    int dead;
+    pthread_cond_t dead_cond;
+    pthread_mutex_t dead_mutex;
+
+    PyThreadState *py_thr;
+};
+
 struct sp_global_state {
     char *app;
     char *unix_path;
@@ -9,10 +22,15 @@ struct sp_global_state {
     int fd;
     int add_dirname_to_path;
 
-    pthread_t *threads;
+    struct thread_data *threads;
     int running;
     int reloading;
 };
 
 extern struct sp_global_state scgipie_global_state;
 #define global_state scgipie_global_state
+
+void pie_init(void);
+void pie_main(struct thread_data *data);
+void pie_signal_stop(struct thread_data *data);
+void pie_finish(void);

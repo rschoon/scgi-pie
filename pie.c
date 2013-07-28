@@ -400,10 +400,6 @@ static int input_TypeCheck(PyObject *self) {
 typedef struct {
     PyObject_HEAD
 
-    /* thread info */
-    PyThreadState *py_thr;
-    PyInterpreterState *py_main_is;
-
     int fd;
 
     struct {
@@ -857,7 +853,7 @@ static void close_result(RequestObject *req, PyObject *result) {
     }
 }
 
-static void handle_request(RequestObject *req) {
+static void handle_request(RequestObject *req, PyThreadState *py_thr) {
     PyObject *start_response;
     PyObject *arglist;
     PyObject *result;
@@ -869,7 +865,7 @@ static void handle_request(RequestObject *req) {
 
     header_size = load_headers(req, &headers);
     
-    PyEval_AcquireThread(req->py_thr);
+    PyEval_AcquireThread(py_thr);
 
     req->req.input = (InputObject *)PyObject_New(InputObject, &InputType);
     req->req.input->buffer = &req->req.buffer;
@@ -912,7 +908,7 @@ static void handle_request(RequestObject *req) {
     req->resp.headers_sent = 1;
     req->fd = -1;
 
-    PyEval_ReleaseThread(req->py_thr);
+    PyEval_ReleaseThread(py_thr);
 }
 
 static int buffer_do_read(PieBuffer *buffer, void *udata) {
@@ -933,6 +929,9 @@ static int buffer_do_read(PieBuffer *buffer, void *udata) {
         pie_buffer_append(buffer, tmp, justread);
 
     request->req.input_size -= justread;
+
+    if(!global_state.running)
+        return -1;
 
     return 0;
 }
@@ -1173,20 +1172,18 @@ void pie_init(void) {
     PyEval_ReleaseThread(main_thr);
 }
 
-void pie_main(void) {
+void pie_main(struct thread_data *thrdata) {
     PyThreadState *py_thr;
     PyInterpreterState *py_main_is;
     RequestObject *request;
 
     py_main_is = main_thr->interp;
     py_thr = PyThreadState_New(py_main_is);
+    thrdata->py_thr = py_thr;
 
     PyEval_AcquireThread(py_thr);
 
     request = (RequestObject *)PyObject_New(RequestObject, &RequestType);
-
-    request->py_main_is = py_main_is;
-    request->py_thr = py_thr;
     request->req.input = NULL;
     request->resp.headers_sent = 0;
     request->resp.status = NULL;
@@ -1201,7 +1198,8 @@ void pie_main(void) {
         int fd = accept(global_state.fd, NULL, NULL);
         if(fd >= 0) {
             request->fd = fd;
-            handle_request(request);
+            handle_request(request, py_thr);
+            request->fd = -1;
             close(fd);
         } else if(errno != EMFILE && errno != ENFILE && errno != EINTR) {
             perror("accept");
@@ -1214,9 +1212,49 @@ void pie_main(void) {
     pie_buffer_free_data(&request->req.buffer);
 
     PyEval_AcquireThread(main_thr);
-    PyThreadState_Clear(request->py_thr);
-    PyThreadState_Delete(request->py_thr);
+    thrdata->py_thr = NULL;
     Py_DECREF(request);
+    PyThreadState_Clear(py_thr);
+    PyThreadState_Delete(py_thr);
+    PyEval_ReleaseThread(main_thr);
+
+    pthread_mutex_lock(&thrdata->dead_mutex);
+    thrdata->dead = 1;
+    pthread_cond_signal(&thrdata->dead_cond);
+    pthread_mutex_unlock(&thrdata->dead_mutex);
+}
+
+static int timed_wait_dead(struct thread_data *thrdata, int seconds) {
+    struct timespec ts;
+    int result = 0;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 5;
+
+    pthread_mutex_lock(&thrdata->dead_mutex);
+    while(!thrdata->dead) {
+        result = pthread_cond_timedwait(&thrdata->dead_cond, &thrdata->dead_mutex, &ts);
+        if(result == ETIMEDOUT)
+            break;
+        else
+            result = 0;
+    }
+    pthread_mutex_unlock(&thrdata->dead_mutex);
+
+    return 0;
+}
+
+void pie_signal_stop(struct thread_data *thrdata) {
+    /* give a few seconds to exit on its own */
+    if(timed_wait_dead(thrdata, 5) == 0)
+        return;
+
+    /* raise SystemExit in the thread */
+    PyEval_AcquireThread(main_thr);
+    if(thrdata->py_thr != NULL) {
+        Py_INCREF(PyExc_SystemExit);
+        PyThreadState_SetAsyncExc(thrdata->py_thr->thread_id, PyExc_SystemExit);
+    }
     PyEval_ReleaseThread(main_thr);
 }
 
