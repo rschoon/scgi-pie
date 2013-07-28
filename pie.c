@@ -56,14 +56,54 @@ static PyObject *error_write(PyObject *self, PyObject *args) {
     if(!PyArg_ParseTuple(args, "s", &buf))
         return NULL;
 
+    Py_BEGIN_ALLOW_THREADS
     fprintf(stderr, "%s", buf);
+    Py_END_ALLOW_THREADS
+    
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *error_writelines(PyObject *self, PyObject *args) {
+    PyObject *iter;
+    PyObject *arg1;
+    PyObject *line;
+    PyObject *lineB;
+
+    if(!PyArg_ParseTuple(args, "O", &arg1))
+        return NULL;
+
+    iter = PyObject_GetIter(arg1);
+    if(iter == NULL)
+        return NULL;
+   
+    while(!!(line = PyIter_Next(iter))) {
+        lineB = to_pybytes_latin1(line, "line");
+        if(lineB != NULL) {
+            Py_BEGIN_ALLOW_THREADS
+            fwrite(PyBytes_AS_STRING(lineB), 1, PyBytes_GET_SIZE(lineB), stderr);
+            Py_END_ALLOW_THREADS
+
+            Py_DECREF(lineB);
+        } else {
+            Py_XDECREF(line);
+            Py_XDECREF(iter);
+            return NULL;
+        }
+
+        Py_DECREF(line);
+    }
+
+    Py_DECREF(iter);
     
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 static PyObject *error_flush(PyObject *self, PyObject *args) {
+    Py_BEGIN_ALLOW_THREADS
     fflush(stderr);
+    Py_END_ALLOW_THREADS
     
     Py_INCREF(Py_None);
     return Py_None;
@@ -72,6 +112,7 @@ static PyObject *error_flush(PyObject *self, PyObject *args) {
 
 static PyMethodDef ErrorMethods[] = {
     {"write", (PyCFunction)error_write, METH_VARARGS, "write"},
+    {"writelines", (PyCFunction)error_writelines, METH_VARARGS, "writelines"},
     {"flush", (PyCFunction)error_flush, METH_VARARGS, "flush"},
     {NULL, NULL, 0, NULL},
 };
