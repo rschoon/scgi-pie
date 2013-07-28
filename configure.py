@@ -65,6 +65,7 @@ mkvar['CFLAGS'] = ' '.join(flags)
 
 libs = getvar('LIBS').split() + getvar('SYSLIBS').split()
 libs.append('-lpython' + pyver + sys.abiflags)
+libs.append('-lrt')
 mkvar['LDFLAGS'] = ' '.join(libs)
 
 #
