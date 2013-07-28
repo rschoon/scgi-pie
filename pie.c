@@ -721,6 +721,9 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
         } else if(!strncmp(name, "CONTENT_LENGTH", namelen)) {
             PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
             content_length = strtol(value, NULL, 10);
+        } else if(!strncmp(name, "HTTP_HOST", namelen)) {
+            PyDict_SetItemString(environ, "SERVER_NAME", value_o);
+            PyDict_SetItemString(environ, name, value_o);
         } else {
             PyDict_SetItemString(environ, name, value_o);
         }
