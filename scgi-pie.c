@@ -46,9 +46,13 @@ void pie_init(void);
 void pie_main(void);
 void pie_finish(void);
 static void* thread_start(void *arg);
+static void shutdown_threads(void);
 static int create_unix_socket(void);
 static void ignore_signal(int sig);
 static void register_signal(int sig);
+
+pthread_cond_t shutdown_cond;
+pthread_mutex_t shutdown_cond_mutex;
 
 int main(int argc, char **argv) {
     int ch;
@@ -124,6 +128,9 @@ int main(int argc, char **argv) {
      * Process configuration
      */
 
+    pthread_cond_init(&shutdown_cond, NULL);
+    pthread_mutex_init(&shutdown_cond_mutex, NULL);
+
     ignore_signal(SIGPIPE);
     register_signal(SIGINT);
     register_signal(SIGTERM);
@@ -153,14 +160,19 @@ int main(int argc, char **argv) {
          * Finish
          */
 
-        for(i = 0; i < global_state.num_threads; i++)
-            pthread_join(global_state.threads[i], NULL);
+        while(global_state.running)
+            pthread_cond_wait(&shutdown_cond, &shutdown_cond_mutex);
+
+        shutdown_threads();
         pie_finish();
     } while(global_state.reloading);
 
     /*
      * Misc cleanup
      */
+
+    pthread_cond_destroy(&shutdown_cond);
+    pthread_mutex_destroy(&shutdown_cond_mutex);
 
     free(global_state.threads);
     free(global_state.unix_path);
@@ -172,6 +184,19 @@ int main(int argc, char **argv) {
 static void* thread_start(void *arg) {
     pie_main();
     return NULL;
+}
+
+static void shutdown_threads(void) {
+    int i;
+
+    /* force any in progress accept() calls to interrupt */
+    for(i = 0; i < global_state.num_threads; i++)
+        pthread_kill(global_state.threads[i], SIGINT);
+
+    /* join */
+    for(i = 0; i < global_state.num_threads; i++)
+        pthread_join(global_state.threads[i], NULL);
+
 }
 
 static int create_unix_socket(void) {
@@ -228,8 +253,6 @@ finish:
  */
 
 static void signal_handler(int signum) {
-    int h;
-
     switch(signum) {
         case SIGHUP:
             global_state.reloading = 1;
@@ -242,13 +265,12 @@ static void signal_handler(int signum) {
             if(global_state.running) {
                 global_state.running = 0;
 
-                /* force any in progress accept() calls to interrupt */
-                for(h = 0; h < global_state.num_threads; h++)
-                    pthread_kill(global_state.threads[h], SIGINT);
+                pthread_mutex_lock(&shutdown_cond_mutex);
+                pthread_cond_signal(&shutdown_cond);
+                pthread_mutex_unlock(&shutdown_cond_mutex);
             }
 
             break;
-
     }
 }
 
