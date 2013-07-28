@@ -8,8 +8,6 @@
 #include "scgi-pie.h"
 #include "buffer.h"
 
-#define MAX_HEADER_SIZE     16384
-
 static PyThreadState *main_thr = NULL;
 static PyObject *application = NULL;
 static PyObject *pie_module = NULL;
@@ -127,7 +125,7 @@ typedef struct {
     PyObject_HEAD
 
     PieBuffer *buffer;
-    int size;
+    int size;       /* remaining to send to python */
 } InputObject;
 
 static PyObject *input_close(PyObject *self, PyObject *args) {
@@ -189,7 +187,7 @@ static PyObject *input_readline(PyObject *self, PyObject *args) {
     buf = input_get_buffer(self);
     if(buf == NULL)
         return NULL;
-   
+
     loc = pie_buffer_findnl(buf, hint_size > 0 ? hint_size : 0); 
     if(loc < 0) {
         loc = pie_buffer_size(buf);
@@ -202,8 +200,10 @@ static PyObject *input_readline(PyObject *self, PyObject *args) {
     justread = pie_buffer_getptr(buf, &p, loc + 1);
     if(justread <= 0)
         return PyBytes_FromString("");
-    else
+    else {
+        ((InputObject*)self)->size -= justread;
         return PyBytes_FromStringAndSize(p, justread);
+    }
 }
 
 static PyObject *input_readlines(PyObject *self, PyObject *args) {
@@ -359,11 +359,9 @@ typedef struct {
     struct {
         PieBuffer buffer;
 
-        char *headers;
-        int headers_space;
-
         PyObject *environ;
         InputObject *input;
+        int input_size;       /* remaining from scgi */
     } req;
 
     struct {
@@ -604,14 +602,6 @@ static int request_TypeCheck(PyObject *self) {
     return PyObject_TypeCheck(self, &RequestType);
 }
 
-static void realloc_headers(RequestObject *req, int size) {
-    if(size < 1024)
-        size = 1024;
-
-    req->req.headers = realloc(req->req.headers, size);
-    req->req.headers_space = size;
-}   
-
 static void request_print_info(RequestObject *req, FILE *out) {
     if(req->req.environ != NULL) {
         PyObject *value;
@@ -648,7 +638,7 @@ static void send_error(RequestObject *req, const char *error) {
     }
 }
 
-static int load_headers(RequestObject *req) {
+static int load_headers(RequestObject *req, char ** headers) {
     PieBuffer *buffer = &req->req.buffer;
     int header_size = 0;
     int c = '\0';
@@ -664,34 +654,20 @@ static int load_headers(RequestObject *req) {
             header_size = header_size * 10 + (c - '0');
     }
 
-    if(header_size > MAX_HEADER_SIZE) {
-        /* XXX there's a correct error code for this... */
-        send_error(req, "header size unexpected size");
-        return -1;
-    } else if(header_size + 1 > req->req.headers_space)
-        realloc_headers(req, header_size + 1);
-
-    if(pie_buffer_getstr(buffer, req->req.headers, header_size) <= 0) {
+    if(pie_buffer_getptr(buffer, headers, header_size) <= 0) {
         send_error(req, "Problems getting SCGI headers");
         return -1;
     }
 
-    if(req->req.headers[header_size-1] == ',') {
-        /* this is a bug */
-        req->req.headers[header_size-1] = '\0';
-    } else {
-        pie_buffer_getchar(buffer);
-        req->req.headers[header_size] = '\0';
-    }
-
-    return 0;
+    return header_size;
 }
 
-static PyObject *setup_environ(RequestObject *req) {
+static PyObject *setup_environ(RequestObject *req, char * headers, int header_size) {
     int https = 0;
-    char *itr;
+    char *itr, *end;
     PyObject *environ;
     PyObject *value_o;
+    int content_length = -1;
 
     environ = Py_BuildValue("{sNsisisisOsOssssssssss}",
                             "wsgi.version", Py_BuildValue("(ii)", 1, 0),
@@ -706,7 +682,9 @@ static PyObject *setup_environ(RequestObject *req) {
                             "QUERY_STRING", "",
                             "SERVER_PROTOCOL", "HTTP/1.1");
 
-    for(itr = req->req.headers; *itr != '\0'; ) {
+    end = headers + header_size;   /* redundant but safe */
+
+    for(itr = headers; *itr != '\0' && itr < end; ) {
         char *name, *value;
         int namelen, valuelen;
 
@@ -730,10 +708,10 @@ static PyObject *setup_environ(RequestObject *req) {
             PyDict_SetItemString(environ, "CONTENT_TYPE", value_o);
         } else if(!strncmp(name, "HTTP_CONTENT_LENGTH", namelen)) {
             PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
-            req->req.input->size = strtol(value, NULL, 10);
+            content_length = strtol(value, NULL, 10);
         } else if(!strncmp(name, "CONTENT_LENGTH", namelen)) {
             PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
-            req->req.input->size = strtol(value, NULL, 10);
+            content_length = strtol(value, NULL, 10);
         } else {
             PyDict_SetItemString(environ, name, value_o);
         }
@@ -746,9 +724,13 @@ static PyObject *setup_environ(RequestObject *req) {
     PyDict_SetItemString(environ, "wsgi.url_scheme", value_o);
     Py_DECREF(value_o);
 
+    req->req.input->size = content_length;
+    req->req.input_size = content_length;
+
     req->req.environ = environ;
     return environ;
 }
+
 
 static void send_result(RequestObject *req, PyObject *result) {
     PyObject *iter;
@@ -822,17 +804,17 @@ static void close_result(RequestObject *req, PyObject *result) {
     }
 }
 
-
 static void handle_request(RequestObject *req) {
     PyObject *start_response;
     PyObject *arglist;
     PyObject *result;
     PyObject *environ;
+    char *headers;
+    int header_size;
 
     /* setup */
 
-    if(load_headers(req) < 0)
-        return;
+    header_size = load_headers(req, &headers);
     
     PyEval_AcquireThread(req->py_thr);
 
@@ -842,8 +824,12 @@ static void handle_request(RequestObject *req) {
 
     req->resp.headers_sent = 0;
 
-    environ = setup_environ(req);
+    environ = setup_environ(req, headers, header_size);
     
+    if(headers[header_size-1] != ',')
+        pie_buffer_getchar(&req->req.buffer);
+    req->req.input_size -= pie_buffer_size(&req->req.buffer);
+
     /* perform call */
 
     start_response = PyObject_GetAttrString((PyObject*)req, "start_response");
@@ -878,22 +864,22 @@ static void handle_request(RequestObject *req) {
 
 static int buffer_do_read(PieBuffer *buffer, void *udata) {
     RequestObject *request = (RequestObject *)udata;
-    InputObject *input = request->req.input;
     char tmp[2048];
     ssize_t justread;
-
-    if(input != NULL && input->size <= 0)
-        return -1;  /* EOF */
     
+    if(request->req.input != NULL && request->req.input_size <= 0)
+        return -1;
+
     justread = recv(request->fd, tmp, sizeof(tmp), 0);
     if(justread < 0) {
         if(errno != EINTR)
             return -1;
+    } else if(justread == 0) {
+        return -1;
     } else
         pie_buffer_append(buffer, tmp, justread);
 
-    if(input != NULL)
-        input->size -= justread;
+    request->req.input_size -= justread;
 
     return 0;
 }
@@ -1149,8 +1135,6 @@ void pie_main(void) {
     request->py_main_is = py_main_is;
     request->py_thr = py_thr;
     request->req.input = NULL;
-    request->req.headers = NULL;
-    request->req.headers_space = 0;
     request->resp.headers_sent = 0;
     request->resp.status = NULL;
     request->resp.headers = NULL;
@@ -1171,16 +1155,9 @@ void pie_main(void) {
             break;
         }
 
-        /* free larger allocations */
         pie_buffer_restart(&request->req.buffer);
-        if(request->req.headers_space > 2048) {
-            free(request->req.headers);
-            request->req.headers = NULL;
-            request->req.headers_space = 0;
-        }
     }
 
-    free(request->req.headers);
     pie_buffer_free_data(&request->req.buffer);
 
     PyEval_AcquireThread(main_thr);
