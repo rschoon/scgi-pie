@@ -62,8 +62,17 @@ static PyObject *error_write(PyObject *self, PyObject *args) {
     return Py_None;
 }
 
+static PyObject *error_flush(PyObject *self, PyObject *args) {
+    fflush(stderr);
+    
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+
 static PyMethodDef ErrorMethods[] = {
     {"write", (PyCFunction)error_write, METH_VARARGS, "write"},
+    {"flush", (PyCFunction)error_flush, METH_VARARGS, "flush"},
     {NULL, NULL, 0, NULL},
 };
 
