@@ -1173,7 +1173,7 @@ void pie_main(void) {
 
         /* free larger allocations */
         pie_buffer_restart(&request->req.buffer);
-        if(request->req.headers_space > 4096) {
+        if(request->req.headers_space > 2048) {
             free(request->req.headers);
             request->req.headers = NULL;
             request->req.headers_space = 0;
