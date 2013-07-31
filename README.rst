@@ -1,4 +1,11 @@
 
+Overview
+========
+
+scgi-pie is a lightweight and threaded SCGI server for Python WSGI applications.
+
+At present it only supports Python 3.3 and newer.
+
 Installing
 ==========
 
