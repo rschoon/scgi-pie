@@ -1136,7 +1136,10 @@ finish:
     Py_XDECREF(wsgiref_validate);
     Py_XDECREF(validator);
 
-    return wrapped_app;
+    if(wrapped_app != NULL)
+        return wrapped_app;
+    else
+        return application;
 }
 
 static PyObject *load_app(const char *path) {
@@ -1198,7 +1201,7 @@ static PyObject *load_app(const char *path) {
     Py_INCREF(a);
 
     if(global_state.wrap_validator)
-        return load_wrap_validator(a);
+        a = load_wrap_validator(a);
 
     return a;
 }
