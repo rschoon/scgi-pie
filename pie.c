@@ -570,10 +570,13 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
     bytes = to_pybytes_latin1(bytes, "data");
     if(bytes == NULL)
         return NULL;
-   
-    //Py_BEGIN_ALLOW_THREADS
+    
     pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
-    //Py_END_ALLOW_THREADS
+    if(!global_state.buffering) {
+        Py_BEGIN_ALLOW_THREADS
+        pie_buffer_flush(&req->resp.buffer);
+        Py_END_ALLOW_THREADS
+    }
 
     Py_DECREF(bytes);          /* to_pybytes_latin1 inc ref'd it */
     Py_INCREF(Py_None);
@@ -804,7 +807,6 @@ static void send_result(RequestObject *req, PyObject *result) {
                 pie_buffer_flush(&req->resp.buffer);
                 Py_END_ALLOW_THREADS
             }
-
 
             Py_DECREF(converted);
         } else {
