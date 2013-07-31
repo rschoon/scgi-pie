@@ -14,6 +14,7 @@
 struct sp_global_state global_state;
 
 static struct option longopts[] = {
+    { "help",           no_argument,            NULL,       'h' },
     { "num-threads",    required_argument,      NULL,       't' },
     { "fd",             required_argument,      NULL,       1000 },
     { "unix",           required_argument,      NULL,       's' },
@@ -64,7 +65,7 @@ int main(int argc, char **argv) {
     global_state.unix_mode = -1;
     global_state.running = 1;
 
-    while ((ch = getopt_long(argc, argv, "M:s:t:", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "hM:s:t:", longopts, NULL)) != -1) {
         switch (ch) {
             case 'M':
                 global_state.unix_mode = strtol(optarg, NULL, 8);
@@ -93,6 +94,7 @@ int main(int argc, char **argv) {
             case 1005:
                 global_state.wrap_validator = 1;
                 break;
+            case 'h':
             default:
                 usage();
                 exit(1);
