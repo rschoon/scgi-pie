@@ -1100,6 +1100,45 @@ finish:
     Py_XDECREF(site);
 }
 
+ static PyObject* load_wrap_validator(PyObject *application) {
+    PyObject *wsgiref_validate, *validator;
+    PyObject *wrapped_app;
+    PyObject *args;
+   
+    if(application == NULL)
+        return NULL;
+
+    wsgiref_validate = PyImport_ImportModule("wsgiref.validate");
+    if(wsgiref_validate != NULL)
+        validator = PyObject_GetAttrString(wsgiref_validate, "validator");
+    else
+        validator = NULL;
+ 
+    if(validator == NULL) {
+        fprintf(stderr, "Unable to load validator:");
+        PyErr_Print();
+  
+        Py_XDECREF(wsgiref_validate);
+        Py_XDECREF(validator);
+        return application;
+    }
+    
+    args = Py_BuildValue("(O)", application);
+    wrapped_app = PyEval_CallObject(validator, args);
+    if(wrapped_app != NULL) {
+        Py_DECREF(application);
+    } else {
+        fprintf(stderr, "Unable to wrap with validator:");
+        PyErr_Print();
+    }
+   
+    Py_XDECREF(args);
+    Py_XDECREF(wsgiref_validate);
+    Py_XDECREF(validator);
+ 
+    return wrapped_app;
+}
+
 static PyObject *load_app(const char *path) {
     FILE *f;
     const char *dirname_p;
@@ -1158,6 +1197,10 @@ static PyObject *load_app(const char *path) {
     }
 
     Py_INCREF(a);
+
+    if(global_state.wrap_validator)
+        a = load_wrap_validator(a);
+
     return a;
 }
 

@@ -22,6 +22,7 @@ struct sp_global_state {
     int num_threads;
     int fd;
     int add_dirname_to_path;
+    int wrap_validator;
 
     struct thread_data *threads;
     int running;

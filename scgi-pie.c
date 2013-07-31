@@ -22,6 +22,7 @@ static struct option longopts[] = {
     { "venv",           required_argument,      NULL,       1002 },
     { "no-venv",        no_argument,            NULL,       1003 },
     { "buffering",      no_argument,            NULL,       1004 },
+    { "validator",      no_argument,            NULL,       1005 },
     { NULL,             0,              NULL,       0 }
 };
 
@@ -41,6 +42,7 @@ static void usage(void) {
         "--no-venv              Don't attempt to guess current virtual environment\n"
         "--buffering            Allow buffering of response output.  This violates\n"
         "                       WSGI spec, but can give a small performance boost\n"
+        "--validator            Add wsgiref.validator middleware\n"
     );
 }
 
@@ -87,6 +89,9 @@ int main(int argc, char **argv) {
                 break;
             case 1004:
                 global_state.buffering = 1;
+                break;
+            case 1005:
+                global_state.wrap_validator = 1;
                 break;
             default:
                 usage();
