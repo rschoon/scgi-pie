@@ -28,7 +28,7 @@
 typedef struct PieBuffer PieBuffer;
 
 typedef int (buffer_pull_data)(PieBuffer*, void *);
-typedef int (buffer_overflow)(PieBuffer*, const char *, size_t, void *);
+typedef int (buffer_push_data)(PieBuffer*, const char *, size_t, void *);
 
 struct PieBuffer {   
     char *buffer;
@@ -40,8 +40,8 @@ struct PieBuffer {
     buffer_pull_data *reader;
     void *reader_udata;
     
-    buffer_overflow *overflow;
-    void *overflow_udata;
+    buffer_push_data *writer;
+    void *writer_udata;
 };
 
 int pie_buffer_init(PieBuffer *buffer);
@@ -49,9 +49,10 @@ void pie_buffer_free_data(PieBuffer *buffer);
 void pie_buffer_restart(PieBuffer *buffer);
 void pie_buffer_set_reader(PieBuffer *buffer, buffer_pull_data *func, void *udata);
 void pie_buffer_set_maxsize(PieBuffer *buffer, size_t sz);
-void pie_buffer_set_overflow(PieBuffer *buffer, buffer_overflow *func, void *udata);
+void pie_buffer_set_writer(PieBuffer *buffer, buffer_push_data *func, void *udata);
 ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len);
 int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len);
+int pie_buffer_flush(PieBuffer *buffer);
 char pie_buffer_peek(PieBuffer *buffer);
 ssize_t pie_buffer_findnl(PieBuffer *buffer, size_t hint);
 size_t pie_buffer_size(PieBuffer *buffer);

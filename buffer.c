@@ -42,8 +42,8 @@ int pie_buffer_init(PieBuffer *buffer) {
     buffer->reader = NULL;
     buffer->reader_udata = NULL;
     
-    buffer->overflow = NULL;
-    buffer->overflow_udata = NULL;
+    buffer->writer = NULL;
+    buffer->writer_udata = NULL;
 
     pie_buffer_restart(buffer);
     
@@ -79,9 +79,9 @@ void pie_buffer_set_maxsize(PieBuffer *buffer, size_t sz) {
     buffer->max_size = sz;
 }
 
-void pie_buffer_set_overflow(PieBuffer *buffer, buffer_overflow *func, void *udata) {
-    buffer->overflow = func;
-    buffer->overflow_udata = udata;
+void pie_buffer_set_writer(PieBuffer *buffer, buffer_push_data *func, void *udata) {
+    buffer->writer = func;
+    buffer->writer_udata = udata;
 }
 
 ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len) {
@@ -124,13 +124,13 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     
     /* we'll overflow our maximum limits */
     if(len >= buffer->max_size - buffer->data_size) {
-        if(buffer->overflow != NULL) {
+        if(buffer->writer != NULL) {
             /* push all of current buffer */
             if(buffer->data_size > 0) {
-                (*buffer->overflow)(buffer,
-                                 buffer->buffer+buffer->offset,
-                                 buffer->data_size,
-                                 buffer->overflow_udata);
+                (*buffer->writer)(buffer,
+                                  buffer->buffer+buffer->offset,
+                                  buffer->data_size,
+                                  buffer->writer_udata);
                 buffer->offset = 0;
                 buffer->data_size = 0;
             }
@@ -143,10 +143,10 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
              */
             if(len >= buffer->max_size) {
                 for(i = 0; len - i > buffer->max_size; i += buffer->max_size) {
-                    (*buffer->overflow)(buffer,
+                    (*buffer->writer)(buffer,
                                  data + i,
                                  buffer->max_size,
-                                 buffer->overflow_udata);
+                                 buffer->writer_udata);
                 }
                 
                 /* adjust and fall through to buffer remaining */
@@ -171,6 +171,21 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     buffer->data_size += len;
     
     return 0;
+}
+
+int pie_buffer_flush(PieBuffer *buffer) {
+    int result = -1;
+
+    if(buffer->writer != NULL) {    
+        result = (*buffer->writer)(buffer, 
+                                  buffer->buffer+buffer->offset,
+                                  buffer->data_size,
+                                  buffer->writer_udata);
+    }
+    buffer->offset = 0;
+    buffer->data_size = 0;
+
+    return result;
 }
 
 static int pull_data(PieBuffer *buf) {

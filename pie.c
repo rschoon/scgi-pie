@@ -411,6 +411,8 @@ typedef struct {
     } req;
 
     struct {
+        PieBuffer buffer;
+
         int headers_sent;
         PyObject *status;
         PyObject *headers;
@@ -485,25 +487,6 @@ static PyObject *request_start_response(PyObject *self, PyObject *args, PyObject
     return PyObject_GetAttrString(self, "write");
 }
 
-static ssize_t request_write_raw(RequestObject *req, const char *buf, size_t count) {
-    ssize_t wrote;
-    ssize_t left = count;
-
-    while(left > 0) {
-        wrote = write(req->fd, buf, left);
-        if(wrote <= 0) {
-            if(errno == EINTR)
-                wrote = 0;
-            else
-                return wrote;
-        }
-
-        left -= wrote;
-        buf += wrote;
-    }
-    return count;
-}
-
 static int request_send_headers(RequestObject *req) {
     int i;
     PyObject *item;
@@ -523,9 +506,9 @@ static int request_send_headers(RequestObject *req) {
     }
 
     /* send status */
-    request_write_raw(req, "Status: ", 8);
-    request_write_raw(req, PyBytes_AS_STRING(status), PyBytes_GET_SIZE(status));
-    request_write_raw(req, "\r\n", 2);
+    pie_buffer_append(&req->resp.buffer, "Status: ", 8);
+    pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(status), PyBytes_GET_SIZE(status));
+    pie_buffer_append(&req->resp.buffer, "\r\n", 2);
 
     /* send rest headers */
     for(i = 0; i < PyList_Size(headers); i++) {
@@ -549,18 +532,20 @@ static int request_send_headers(RequestObject *req) {
             return -1;
         }
     
-        Py_BEGIN_ALLOW_THREADS
-        request_write_raw(req, PyBytes_AS_STRING(name), PyBytes_GET_SIZE(name));
-        request_write_raw(req, ": ", 2);
-        request_write_raw(req, PyBytes_AS_STRING(value), PyBytes_GET_SIZE(value));
-        request_write_raw(req, "\r\n", 2);
-        Py_END_ALLOW_THREADS
+        pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(name), PyBytes_GET_SIZE(name));
+        pie_buffer_append(&req->resp.buffer, ": ", 2);
+        pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(value), PyBytes_GET_SIZE(value));
+        pie_buffer_append(&req->resp.buffer, "\r\n", 2);
 
         Py_DECREF(name);
         Py_DECREF(value);
     }
-    request_write_raw(req, "\r\n", 2);
-    
+    pie_buffer_append(&req->resp.buffer, "\r\n", 2);
+
+    Py_BEGIN_ALLOW_THREADS
+    pie_buffer_flush(&req->resp.buffer);
+    Py_END_ALLOW_THREADS
+
     req->resp.headers_sent = 1;
  
     return 0;
@@ -586,9 +571,9 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
     if(bytes == NULL)
         return NULL;
    
-    Py_BEGIN_ALLOW_THREADS
-    request_write_raw(req, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
-    Py_END_ALLOW_THREADS
+    //Py_BEGIN_ALLOW_THREADS
+    pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
+    //Py_END_ALLOW_THREADS
 
     Py_DECREF(bytes);          /* to_pybytes_latin1 inc ref'd it */
     Py_INCREF(Py_None);
@@ -672,16 +657,18 @@ static void send_error(RequestObject *req, const char *error) {
     static const char err_body[] = "An internal server error has occured.\r\n\r\n";
 
     if(!req->resp.headers_sent) {
-        request_write_raw(req, err_headers, sizeof(err_headers)-1);
+        pie_buffer_append(&req->resp.buffer, err_headers, sizeof(err_headers)-1);
         req->resp.headers_sent = 1;
     }
 
-    request_write_raw(req, err_body, sizeof(err_body)-1);
+    pie_buffer_append(&req->resp.buffer, err_body, sizeof(err_body)-1);
 
     if(error != NULL) {
-        request_write_raw(req, error, strlen(error));
-        request_write_raw(req, "\r\n", 2);
+        pie_buffer_append(&req->resp.buffer, error, strlen(error));
+        pie_buffer_append(&req->resp.buffer, "\r\n", 2);
     }
+
+    pie_buffer_flush(&req->resp.buffer);
 }
 
 static int load_headers(RequestObject *req, char ** headers) {
@@ -809,10 +796,15 @@ static void send_result(RequestObject *req, PyObject *result) {
  
         converted = to_pybytes_latin1(item, "data");
         if(converted != NULL) {
-            Py_BEGIN_ALLOW_THREADS
-            request_write_raw(req, PyBytes_AS_STRING(converted),
-                                   PyBytes_GET_SIZE(converted));
-            Py_END_ALLOW_THREADS
+            pie_buffer_append(&req->resp.buffer,
+                              PyBytes_AS_STRING(converted),
+                              PyBytes_GET_SIZE(converted));
+            if(!global_state.buffering) {
+                Py_BEGIN_ALLOW_THREADS
+                pie_buffer_flush(&req->resp.buffer);
+                Py_END_ALLOW_THREADS
+            }
+
 
             Py_DECREF(converted);
         } else {
@@ -826,9 +818,15 @@ static void send_result(RequestObject *req, PyObject *result) {
     }
 
     Py_DECREF(iter);
- 
+
     if(!checked_send_headers)
         request_send_headers(req);
+
+    if(pie_buffer_size(&req->resp.buffer) > 0) {
+        Py_BEGIN_ALLOW_THREADS
+        pie_buffer_flush(&req->resp.buffer);
+        Py_END_ALLOW_THREADS
+    }
 }
 
 static void close_result(RequestObject *req, PyObject *result) {
@@ -911,7 +909,7 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
     PyEval_ReleaseThread(py_thr);
 }
 
-static int buffer_do_read(PieBuffer *buffer, void *udata) {
+static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
     RequestObject *request = (RequestObject *)udata;
     char tmp[2048];
     ssize_t justread;
@@ -932,6 +930,28 @@ static int buffer_do_read(PieBuffer *buffer, void *udata) {
 
     if(!global_state.running)
         return -1;
+
+    return 0;
+}
+
+static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count, void *udata) {
+    RequestObject *req = (RequestObject *)udata;
+    ssize_t wrote;
+    ssize_t left = count;
+
+    while(left > 0) {
+        wrote = write(req->fd, buf, left);
+        if(wrote <= 0) {
+            if(errno == EINTR)
+                wrote = 0;
+            else
+                return wrote;
+        }
+
+        left -= wrote;
+        buf += wrote;
+    }
+    return count;
 
     return 0;
 }
@@ -1190,7 +1210,10 @@ void pie_main(struct thread_data *thrdata) {
     request->resp.headers = NULL;
 
     pie_buffer_init(&request->req.buffer);
-    pie_buffer_set_reader(&request->req.buffer, buffer_do_read, request);
+    pie_buffer_set_reader(&request->req.buffer, req_buffer_do_read, request);
+
+    pie_buffer_init(&request->resp.buffer);
+    pie_buffer_set_writer(&request->resp.buffer, resp_buffer_do_write, request);
 
     PyEval_ReleaseThread(py_thr);
 
@@ -1207,9 +1230,11 @@ void pie_main(struct thread_data *thrdata) {
         }
 
         pie_buffer_restart(&request->req.buffer);
+        pie_buffer_restart(&request->resp.buffer);
     }
 
     pie_buffer_free_data(&request->req.buffer);
+    pie_buffer_free_data(&request->resp.buffer);
 
     PyEval_AcquireThread(main_thr);
     thrdata->py_thr = NULL;

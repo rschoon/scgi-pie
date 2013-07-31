@@ -18,6 +18,7 @@ struct sp_global_state {
     int unix_mode;
     char *venv;
     int no_venv;
+    int buffering;
     int num_threads;
     int fd;
     int add_dirname_to_path;

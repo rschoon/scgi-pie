@@ -21,6 +21,7 @@ static struct option longopts[] = {
     { "add-dirname-to-path", no_argument,       NULL,       1001 },
     { "venv",           required_argument,      NULL,       1002 },
     { "no-venv",        no_argument,            NULL,       1003 },
+    { "buffering",      no_argument,            NULL,       1004 },
     { NULL,             0,              NULL,       0 }
 };
 
@@ -38,6 +39,8 @@ static void usage(void) {
         "--add-dirname-to-path  Add path of wsgi app to sys.path\n"
         "--venv <path>          Use path as python virtual environment\n"
         "--no-venv              Don't attempt to guess current virtual environment\n"
+        "--buffering            Allow buffering of response output.  This violates\n"
+        "                       WSGI spec, but can give a small performance boost\n"
     );
 }
 
@@ -81,6 +84,9 @@ int main(int argc, char **argv) {
                 break;
             case 1003:
                 global_state.no_venv = 1;
+                break;
+            case 1004:
+                global_state.buffering = 1;
                 break;
             default:
                 usage();
