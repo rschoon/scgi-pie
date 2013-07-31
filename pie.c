@@ -785,7 +785,7 @@ static void send_result(RequestObject *req, PyObject *result) {
     iter = PyObject_GetIter(result);
     if(iter == NULL) {
         request_print_info(req, stderr);
-        fprintf(stderr, "Got a non-iterable from application:");
+        fprintf(stderr, "Got a non-iterable from application:\n");
         PyErr_Print();
         return;
     }
@@ -813,10 +813,17 @@ static void send_result(RequestObject *req, PyObject *result) {
             if(PyErr_Occurred() != NULL) {
                 request_print_info(req, stderr);
                 PyErr_Print();
+                PyErr_Clear();
             }
         }
 
         Py_DECREF(item);
+    }
+
+    if(PyErr_Occurred() != NULL) {
+        request_print_info(req, stderr);
+        fprintf(stderr, "Iterator returned an error:\n");
+        PyErr_Print();
     }
 
     Py_DECREF(iter);
