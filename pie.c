@@ -773,7 +773,7 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
 
 static void send_result(RequestObject *req, PyObject *result) {
     PyObject *iter;
-    PyObject *item, *converted;
+    PyObject *item;
     int checked_send_headers = 0;
 
     if(result == NULL) {
@@ -792,32 +792,40 @@ static void send_result(RequestObject *req, PyObject *result) {
    
     /* Send body */
     while(!!(item = PyIter_Next(iter))) {
-        if(!checked_send_headers) {
-            request_send_headers(req);
-            checked_send_headers = 1;
-        }
+        PyObject *converted;
+        const char *bytes;
+        int byteslen;
  
         converted = to_pybytes_latin1(item, "data");
-        if(converted != NULL) {
-            pie_buffer_append(&req->resp.buffer,
-                              PyBytes_AS_STRING(converted),
-                              PyBytes_GET_SIZE(converted));
-            if(!global_state.buffering) {
-                Py_BEGIN_ALLOW_THREADS
-                pie_buffer_flush(&req->resp.buffer);
-                Py_END_ALLOW_THREADS
-            }
+        Py_DECREF(item);
 
-            Py_DECREF(converted);
-        } else {
+        if(converted == NULL) {
             if(PyErr_Occurred() != NULL) {
                 request_print_info(req, stderr);
                 PyErr_Print();
                 PyErr_Clear();
             }
+            break;
         }
 
-        Py_DECREF(item);
+        byteslen = PyBytes_GET_SIZE(converted);
+        bytes = PyBytes_AS_STRING(converted);
+
+        if(byteslen > 0) {
+            if(!checked_send_headers) {
+                request_send_headers(req);
+                checked_send_headers = 1;
+            }
+
+            pie_buffer_append(&req->resp.buffer, bytes, byteslen);
+            if(!global_state.buffering) {
+                Py_BEGIN_ALLOW_THREADS
+                pie_buffer_flush(&req->resp.buffer);
+                Py_END_ALLOW_THREADS
+            }
+        }
+
+        Py_DECREF(converted);
     }
 
     if(PyErr_Occurred() != NULL) {
