@@ -725,12 +725,15 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
         int namelen, valuelen;
 
         /* name */
-        namelen = strlen(itr);
+        namelen = strnlen(itr, end - itr);
         name = itr;
         itr += namelen + 1;
 
+        if(itr >= end)
+            break;
+
         /* value */
-        valuelen = strlen(itr);
+        valuelen = strnlen(itr, end - itr);
         value = itr;
 
         if(!strncmp(name, "HTTPS", namelen)) {
