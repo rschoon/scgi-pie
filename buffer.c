@@ -34,6 +34,8 @@
  * Currently we maintain a single buffer.  We realloc to increase the size.
  */
 
+static int pull_data_until(PieBuffer *buf, size_t need);
+
 int pie_buffer_init(PieBuffer *buffer) {
     buffer->buffer = NULL;
     buffer->buffer_size = 0;
@@ -106,6 +108,37 @@ ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len) {
     }
     
     return 0;
+}
+
+ssize_t pie_buffer_send(PieBuffer *buffer, int fd, size_t len) {
+	ssize_t justsent;
+    ssize_t total = 0;
+
+    pull_data_until(buffer, len);
+    
+    if(buffer->data_size - buffer->offset == 0)
+        return 0;
+
+    if(buffer->offset + len > buffer->data_size)
+        len = buffer->data_size - buffer->offset + 1;
+
+	while(len > 0) {
+		char *p = buffer->buffer + buffer->offset;
+		errno = 0;
+		justsent = send(fd, p, len, 0);
+		if(justsent < 0) {
+			if(errno == EINTR)
+				continue;
+			if(total > 0)
+				return total;
+			return justsent;
+		}
+
+		len -= justsent;
+		buffer->offset += justsent;
+	}
+
+	return total;
 }
 
 int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
@@ -216,6 +249,17 @@ size_t pie_buffer_size(PieBuffer *buffer) {
     return buffer->data_size - buffer->offset;
 }
 
+ssize_t pie_buffer_unget(PieBuffer *buffer, size_t len) {
+	if(buffer->offset + len > buffer->data_size) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	buffer->offset -= len;
+
+	return 0;
+}
+
 ssize_t pie_buffer_getptr(PieBuffer *buffer, char **p, size_t len) {
     pull_data_until(buffer, len);
     
@@ -228,6 +272,25 @@ ssize_t pie_buffer_getptr(PieBuffer *buffer, char **p, size_t len) {
     buffer->offset += len;
     
     return len;
+}
+
+ssize_t pie_buffer_findchar(PieBuffer *buffer, char c, size_t hint) {
+    size_t base;
+    size_t i;
+    
+    if(hint > 0)
+        pull_data_until(buffer, hint);
+
+    base = buffer->offset;
+    do {
+        for(i = base; i < buffer->data_size; i++) {
+            if(buffer->buffer[i] == c) {
+                return i - buffer->offset;
+            }
+        }
+    } while(pull_data(buffer) >= 0);
+    
+    return -1;
 }
 
 ssize_t pie_buffer_findnl(PieBuffer *buffer, size_t hint) {

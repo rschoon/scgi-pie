@@ -51,9 +51,11 @@ void pie_buffer_set_reader(PieBuffer *buffer, buffer_pull_data *func, void *udat
 void pie_buffer_set_maxsize(PieBuffer *buffer, size_t sz);
 void pie_buffer_set_writer(PieBuffer *buffer, buffer_push_data *func, void *udata);
 ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len);
+ssize_t pie_buffer_send(PieBuffer *buffer, int fd, size_t len);
 int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len);
 int pie_buffer_flush(PieBuffer *buffer);
 char pie_buffer_peek(PieBuffer *buffer);
+ssize_t pie_buffer_findchar(PieBuffer *buffer, char c, size_t hint);
 ssize_t pie_buffer_findnl(PieBuffer *buffer, size_t hint);
 size_t pie_buffer_size(PieBuffer *buffer);
 int pie_buffer_getchar(PieBuffer *buffer);
