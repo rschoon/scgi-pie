@@ -1,4 +1,5 @@
 
+import signal
 from threading import Thread
 
 import _scgi_pie
@@ -12,6 +13,7 @@ class ServerThread(Thread):
         Thread.__init__(self)
 
     def run(self):
+        print("Starting...")
         self.request.accept_loop()
 
 class WSGIServer(object):
@@ -31,4 +33,11 @@ class WSGIServer(object):
             thr.join()
 
     def halt(self):
-        pass
+        oldh = signal.signal(signal.SIGINT, lambda i,f: None)
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+
+        for thr in self.threads:
+            thr.request.halt_loop()
+
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+        signal.signal(signal.SIGINT, oldh)

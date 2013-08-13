@@ -1,4 +1,5 @@
 
+#include <signal.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -11,6 +12,7 @@ static int input_TypeCheck(PyObject *self);
 static int request_TypeCheck(PyObject *self);
 
 static PyObject *request_accept_loop(PyObject *self, PyObject *args);
+static PyObject *request_halt_loop(PyObject *self, PyObject *args);
 static int req_buffer_do_read(PieBuffer *buffer, void *udata);
 static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count, void *udata);
 
@@ -401,6 +403,10 @@ typedef struct {
     int fd;
 
     struct loop_state {
+        int quitting;
+        int in_accept;
+        long thread_id;
+
         PyObject *application;
         PyObject *stderr;
         int allow_buffering;
@@ -431,12 +437,15 @@ static PyObject *request_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if(req != NULL) {
         req->fd = -1;
 
+        req->loop_state.quitting = 0;
+        req->loop_state.in_accept = 0;
+        req->loop_state.thread_id = 0;
+
         req->loop_state.application = NULL;
         req->loop_state.allow_buffering = 0;
         req->loop_state.listen_fd = -1;
         req->loop_state.stderr = PySys_GetObject("stderr");
         Py_INCREF(req->loop_state.stderr);
-
 
         req->req.input = NULL;
         req->resp.headers_sent = 0;
@@ -645,6 +654,7 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
 
 static PyMethodDef RequestMethods[] = {
     {"accept_loop", (PyCFunction)request_accept_loop, METH_VARARGS, ""},
+    {"halt_loop", (PyCFunction)request_halt_loop, METH_VARARGS, ""},
     {"start_response", (PyCFunction)request_start_response, METH_VARARGS | METH_KEYWORDS, ""},
     {"write", (PyCFunction)request_write, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL},
@@ -1119,9 +1129,12 @@ static PyObject *request_accept_loop(PyObject *self, PyObject *args) {
     }
     request = (RequestObject *)self;
 
-    py_thr = PyEval_SaveThread();    
+    request->loop_state.in_accept = 1;
+    request->loop_state.thread_id = PyThreadState_Get()->thread_id;
 
-    for(;;) {
+    py_thr = PyEval_SaveThread();
+
+    while(!request->loop_state.quitting) {
         int fd = accept(request->loop_state.listen_fd, NULL, NULL);
         if(fd >= 0) {
             request->fd = fd;
@@ -1138,6 +1151,33 @@ static PyObject *request_accept_loop(PyObject *self, PyObject *args) {
     }
 
     PyEval_RestoreThread(py_thr);
+
+    request->loop_state.in_accept = 0;
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *request_halt_loop(PyObject *self, PyObject *args) {
+    RequestObject *req = (RequestObject *)self;
+
+    if(!request_TypeCheck(self)) {
+        PyErr_SetString(PyExc_TypeError, "expected request object");
+        return NULL;
+    }
+    req->loop_state.quitting = 1;
+    if(!req->loop_state.in_accept) {
+        Py_INCREF(Py_None);
+        return Py_None;
+    }
+
+    req->loop_state.listen_fd = -1;
+    
+    if(pthread_kill(req->loop_state.thread_id, SIGINT) < 0)
+        perror("pthread_kill");
+    
+    Py_INCREF(Py_None);
+    return Py_None;
 }
 
 /*
