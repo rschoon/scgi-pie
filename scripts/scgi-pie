@@ -64,6 +64,10 @@ if args.add_dirname_to_path:
 
 application = scgi_pie.load_app(args.application)
 
+if args.validator:
+    from wsgiref.validate import validator
+    application = validator(application)
+
 #
 # Create Server
 #
