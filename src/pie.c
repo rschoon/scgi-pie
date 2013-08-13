@@ -5,16 +5,14 @@
 
 #include <Python.h>
 
-#include "scgi-pie.h"
 #include "buffer.h"
-
-static PyThreadState *main_thr = NULL;
-static PyObject *application = NULL;
-static PyObject *pie_module = NULL;
-static PyObject *wsgi_stderr = NULL;
 
 static int input_TypeCheck(PyObject *self);
 static int request_TypeCheck(PyObject *self);
+
+static PyObject *request_accept_loop(PyObject *self, PyObject *args);
+static int req_buffer_do_read(PieBuffer *buffer, void *udata);
+static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count, void *udata);
 
 /*
  * Utility
@@ -402,6 +400,13 @@ typedef struct {
 
     int fd;
 
+    struct loop_state {
+        PyObject *application;
+        PyObject *stderr;
+        int allow_buffering;
+        int listen_fd;
+    } loop_state;
+
     struct {
         PieBuffer buffer;
 
@@ -418,6 +423,61 @@ typedef struct {
         PyObject *headers;
     } resp;
 } RequestObject;
+
+static PyObject *request_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    RequestObject *req;
+
+    req = (RequestObject *)type->tp_alloc(type, 0);
+    if(req != NULL) {
+        req->fd = -1;
+
+        req->loop_state.application = NULL;
+        req->loop_state.allow_buffering = 0;
+        req->loop_state.listen_fd = -1;
+        req->loop_state.stderr = PySys_GetObject("stderr");
+        Py_INCREF(req->loop_state.stderr);
+
+
+        req->req.input = NULL;
+        req->resp.headers_sent = 0;
+        req->resp.status = NULL;
+        req->resp.headers = NULL;
+
+        pie_buffer_init(&req->req.buffer);
+        pie_buffer_set_reader(&req->req.buffer, req_buffer_do_read, req);
+
+        pie_buffer_init(&req->resp.buffer);
+        pie_buffer_set_writer(&req->resp.buffer, resp_buffer_do_write, req);
+    }
+
+    return (PyObject *)req;
+}
+
+static int request_init(PyObject *self, PyObject *args, PyObject *kwds) {
+    RequestObject *req = (RequestObject *)self;
+    static char *kwlist[] = { "application", "listen_socket", "allow_buffering", NULL };
+
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "Oip", kwlist,
+                                    &req->loop_state.application,
+                                    &req->loop_state.listen_fd,
+                                    &req->loop_state.allow_buffering))
+        return -1; 
+
+    return 0;
+}
+
+static void request_dealloc(PyObject* self) {
+    RequestObject *req = (RequestObject *)self;
+
+    Py_CLEAR(req->loop_state.application);
+    Py_CLEAR(req->loop_state.stderr);
+    Py_CLEAR(req->req.input);
+    Py_CLEAR(req->resp.status);
+    Py_CLEAR(req->resp.headers);
+
+    pie_buffer_free_data(&req->req.buffer);
+    pie_buffer_free_data(&req->resp.buffer);
+}
 
 static PyObject *request_start_response(PyObject *self, PyObject *args, PyObject *keywds) {
     PyObject *status;
@@ -572,7 +632,7 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
         return NULL;
     
     pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
-    if(!global_state.buffering) {
+    if(!req->loop_state.allow_buffering) {
         Py_BEGIN_ALLOW_THREADS
         pie_buffer_flush(&req->resp.buffer);
         Py_END_ALLOW_THREADS
@@ -584,6 +644,7 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef RequestMethods[] = {
+    {"accept_loop", (PyCFunction)request_accept_loop, METH_VARARGS, ""},
     {"start_response", (PyCFunction)request_start_response, METH_VARARGS | METH_KEYWORDS, ""},
     {"write", (PyCFunction)request_write, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL},
@@ -591,10 +652,10 @@ static PyMethodDef RequestMethods[] = {
 
 static PyTypeObject RequestType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    "scgi_pie.Request",        /*tp_name*/
+    "_scgi_pie.Request",        /*tp_name*/
     sizeof(RequestObject),     /*tp_basicsize*/
     0,                         /*tp_itemsize*/
-    0,                         /*tp_dealloc*/
+    (destructor)request_dealloc, /*tp_dealloc*/
     0,                         /*tp_print*/
     0,                         /*tp_getattr*/
     0,                         /*tp_setattr*/
@@ -625,9 +686,9 @@ static PyTypeObject RequestType = {
     0,                         /*tp_descr_get*/
     0,                         /*tp_descr_set*/
     0,                         /*tp_dictoffset*/
-    0,                         /*tp_init*/
+    request_init,              /*tp_init*/
     0,                         /*tp_alloc*/
-    PyType_GenericNew,         /*tp_new*/
+    request_new,               /*tp_new*/
     0,                         /*tp_free*/
     0,                         /*tp_is_gc*/
 };
@@ -710,7 +771,7 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
                             "wsgi.multithread", 1,
                             "wsgi.multiprocess", 1,  /* who knows ? */
                             "wsgi.run_once", 0,
-                            "wsgi.errors", wsgi_stderr,
+                            "wsgi.errors", req->loop_state.stderr,
                             "wsgi.input", req->req.input,
                             "SCRIPT_NAME", "",
                             "REQUEST_METHOD", "GET",
@@ -821,7 +882,7 @@ static void send_result(RequestObject *req, PyObject *result) {
             }
 
             pie_buffer_append(&req->resp.buffer, bytes, byteslen);
-            if(!global_state.buffering) {
+            if(!req->loop_state.allow_buffering) {
                 Py_BEGIN_ALLOW_THREADS
                 pie_buffer_flush(&req->resp.buffer);
                 Py_END_ALLOW_THREADS
@@ -901,7 +962,7 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
 
     start_response = PyObject_GetAttrString((PyObject*)req, "start_response");
     arglist = Py_BuildValue("(OO)", environ, start_response);
-    result = PyObject_CallObject(application, arglist);
+    result = PyObject_CallObject(req->loop_state.application, arglist);
     if(PyErr_Occurred() != NULL) {
         request_print_info(req, stderr);
         PyErr_Print();
@@ -948,7 +1009,7 @@ static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
 
     request->req.input_size -= justread;
 
-    if(!global_state.running)
+    if(request->fd < 0)
         return -1;
 
     return 0;
@@ -974,6 +1035,109 @@ static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count
     return count;
 
     return 0;
+}
+
+/*
+ * Loader
+ */
+
+static PyObject *new_blank_module(const char *name) {
+    PyObject *m, *d;
+    m = PyImport_AddModule(name);
+    if (m == NULL)
+        Py_FatalError("can't create blank module module");
+    d = PyModule_GetDict(m);
+    if(PyDict_GetItemString(d, "__builtins__") == NULL) {
+        PyObject *bimod = PyImport_ImportModule("builtins");
+        if (bimod == NULL || PyDict_SetItemString(d, "__builtins__", bimod) != 0)
+            Py_FatalError("can't add __builtins__ to app module");
+            Py_XDECREF(bimod);
+    }
+    return m;
+}
+static PyObject *load_app(const char *path) {
+    FILE *f;
+    PyObject *m, *d, *a;
+    PyObject *v;
+
+    if(path == NULL) {
+        PyErr_SetString(PyExc_ImportError, "application path not set");
+        return NULL;
+    }
+
+    f = fopen(path, "r");
+    if(path == NULL) {
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+
+    m = new_blank_module("__wsgi_main__");
+    d = PyModule_GetDict(m);
+   
+    v = PyUnicode_DecodeLatin1(path, strlen(path), "replace");
+    PyDict_SetItemString(d, "__file__", v);
+    Py_DECREF(v);
+ 
+    v = PyRun_FileExFlags(f, path, Py_file_input, d, d, 0, NULL);
+    Py_XDECREF(v);              /* Decref result from code load, probably NoneType */
+  
+    fclose(f);
+
+    if(PyErr_Occurred() != NULL)
+        return NULL;
+
+    /* Load application object */
+    a = PyDict_GetItemString(d, "application");
+    if(a == NULL || !PyCallable_Check(a)) {
+        PyErr_SetString(PyExc_ImportError, "application missing or not a callable");
+        return NULL;
+    }
+    Py_INCREF(a);
+
+    return a;
+}
+
+static PyObject* m_load_app(PyObject *self, PyObject *args) {
+    const char *path;
+
+    if(!PyArg_ParseTuple(args, "s", &path))
+        return NULL;
+
+    return load_app(path);
+}
+
+/*
+ * Main Loop
+ */
+
+static PyObject *request_accept_loop(PyObject *self, PyObject *args) {
+    RequestObject *request;
+    PyThreadState *py_thr;
+
+    if(!request_TypeCheck(self)) {
+        PyErr_SetString(PyExc_TypeError, "expected request object");
+        return NULL;
+    }
+    request = (RequestObject *)self;
+
+    py_thr = PyEval_SaveThread();    
+
+    for(;;) {
+        int fd = accept(request->loop_state.listen_fd, NULL, NULL);
+        if(fd >= 0) {
+            request->fd = fd;
+            handle_request(request, py_thr);
+            request->fd = -1;
+            close(fd);
+        } else if(errno != EMFILE && errno != ENFILE && errno != EINTR) {
+            PyEval_RestoreThread(py_thr);
+            return PyErr_SetFromErrno(PyExc_OSError);
+        }
+
+        pie_buffer_restart(&request->req.buffer);
+        pie_buffer_restart(&request->resp.buffer);
+    }
+
+    PyEval_RestoreThread(py_thr);
 }
 
 /*
@@ -1006,6 +1170,7 @@ static PyObject *m_fallback_app(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef ModuleMethods[] = {
+    {"load_app", (PyCFunction)m_load_app, METH_VARARGS, ""},
     {"fallback_app", (PyCFunction)m_fallback_app, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL}
 };
@@ -1022,7 +1187,10 @@ static struct PyModuleDef ModuleDef = {
     0,  /* m_free */
 };
 
-static PyObject *init_module(void) {
+
+PyMODINIT_FUNC
+PyInit__scgi_pie(void)
+{
     PyObject *m;
 
     if(PyType_Ready(&ErrorType) < 0)
@@ -1035,320 +1203,10 @@ static PyObject *init_module(void) {
         return NULL;
 
     m = PyModule_Create(&ModuleDef);
-
-    return m;
-}
-
-PyObject* get_fallback_app(int incref) {
-    PyObject *app = PyObject_GetAttrString(pie_module, "fallback_app");
-    if(incref)
-        Py_INCREF(app);
-    return app;
-}
-
-/*
- * Loader
- */
-
-static PyObject *new_blank_module(const char *name) {
-    PyObject *m, *d;
-    m = PyImport_AddModule(name);
     if (m == NULL)
-        Py_FatalError("can't create blank module module");
-    d = PyModule_GetDict(m);
-    if(PyDict_GetItemString(d, "__builtins__") == NULL) {
-        PyObject *bimod = PyImport_ImportModule("builtins");
-        if (bimod == NULL || PyDict_SetItemString(d, "__builtins__", bimod) != 0)
-            Py_FatalError("can't add __builtins__ to app module");
-            Py_XDECREF(bimod);
-    }
-    return m;
-}
-
-static void setup_venv(const char *path) {
-    PyObject *prefix = NULL, *executable = NULL;
-    PyObject *site = NULL, *method = NULL, *args = NULL, *result = NULL;
-
-    if(path == NULL)
-        return;
-
-    /*
-     * adjust sys so that site.py can do its work
-     */
-    prefix = PyUnicode_DecodeFSDefaultAndSize(path, strlen(path));
-    executable = PyUnicode_FromFormat("%U/bin/python", prefix);
-
-    PySys_SetObject("prefix", prefix);
-    PySys_SetObject("executable", executable);
-
-    Py_DECREF(prefix);
-    Py_DECREF(executable);
-
-    /*
-     * load site, which does other paths
-     */
-    site = PyImport_ImportModule("site");
-    if(site == NULL) {
-        PyErr_Print();
-        goto finish;
-    }
-
-    method = PyObject_GetAttrString(site, "main");
-    if(method == NULL) {
-        PyErr_Print();
-        goto finish;
-    }
-
-    args = Py_BuildValue("()");
-    if(args == NULL) {
-        PyErr_Print();
-        goto finish;
-    }
-
-    result = PyEval_CallObject(method, args);
-    if(result == NULL) {
-        PyErr_Print();
-        goto finish;
-    }
-
-finish:
-    Py_XDECREF(method);
-    Py_XDECREF(args);
-    Py_XDECREF(result);
-    Py_XDECREF(site);
-}
-
- static PyObject* load_wrap_validator(PyObject *application) {
-    PyObject *wsgiref_validate, *validator;
-    PyObject *wrapped_app;
-    PyObject *args;
-   
-    if(application == NULL)
         return NULL;
 
-    wsgiref_validate = PyImport_ImportModule("wsgiref.validate");
-    if(wsgiref_validate != NULL)
-        validator = PyObject_GetAttrString(wsgiref_validate, "validator");
-    else
-        validator = NULL;
- 
-    if(validator == NULL) {
-        fprintf(stderr, "Unable to load validator:\n");
-        PyErr_Print();
-  
-        Py_XDECREF(wsgiref_validate);
-        Py_XDECREF(validator);
-        return application;
-    }
-    
-    args = Py_BuildValue("(O)", application);
-    wrapped_app = PyEval_CallObject(validator, args);
-    if(wrapped_app != NULL) {
-        Py_DECREF(application);
-    } else {
-        fprintf(stderr, "Unable to wrap with validator:\n");
-        PyErr_Print();
-    }
+    PyModule_AddObject(m, "Request", (PyObject *)&RequestType);
 
-    Py_XDECREF(args);
-    Py_XDECREF(wsgiref_validate);
-    Py_XDECREF(validator);
-
-    if(wrapped_app != NULL)
-        return wrapped_app;
-    else
-        return application;
-}
-
-static PyObject *load_app(const char *path) {
-    FILE *f;
-    const char *dirname_p;
-    PyObject *m, *d, *a;
-    PyObject *v;
-    PyObject *pth, *pth_to_add;
-
-    if(path == NULL) {
-        fprintf(stderr, "Application not set.\n");
-        return get_fallback_app(1);
-    }
-
-    f = fopen(path, "r");
-    if(f == NULL) {
-        perror("Open application failed");
-        return get_fallback_app(1);
-    }
-
-    if(global_state.add_dirname_to_path) {
-        pth = PySys_GetObject("path");
-        if(pth == NULL || !PyList_Check(pth)) {
-            fprintf(stderr, "Unable to manipulate sys.path");
-            return get_fallback_app(1);
-        }
-
-        dirname_p = strrchr(path, '/');
-        if(dirname_p == NULL)
-            pth_to_add = PyUnicode_DecodeUTF8(".", 1, "replace");
-        else
-            pth_to_add = PyUnicode_DecodeFSDefaultAndSize(path, dirname_p - path);
-
-        PyList_Insert(pth, 0, pth_to_add);
-        Py_DECREF(pth_to_add);
-    }
-        
-    m = new_blank_module("__wsgi_main__");
-    d = PyModule_GetDict(m);
-   
-    v = PyUnicode_DecodeLatin1(path, strlen(path), "replace");
-    PyDict_SetItemString(d, "__file__", v);
-    Py_DECREF(v);
- 
-    v = PyRun_FileExFlags(f, path, Py_file_input, d, d, 0, NULL);
-
-    if(PyErr_Occurred() != NULL)
-        PyErr_Print();
-    Py_XDECREF(v);              /* Decref result from code load, probably NoneType */
-  
-    fclose(f);
-
-    /* Load application object */
-    a = PyDict_GetItemString(d, "application");
-    if(a == NULL || !PyCallable_Check(a)) {
-        fprintf(stderr, "application missing or not a callable.\n");
-        return get_fallback_app(1);
-    }
-    Py_INCREF(a);
-
-    if(global_state.wrap_validator)
-        a = load_wrap_validator(a);
-
-    return a;
-}
-
-/*
- * Main functions
- */
-
-void pie_init(void) {
-    if(global_state.venv == NULL && !global_state.no_venv) {
-        /* try to guess from environment */
-        char *virtual_env = getenv("VIRTUAL_ENV");
-        if(virtual_env)
-            global_state.venv = strdup(virtual_env);
-    } 
-
-    if(global_state.venv != NULL) {
-        Py_NoSiteFlag = 1;      /* site is loaded in setup_venv */
-        setenv("VIRTUAL_ENV", global_state.venv, 1);
-    }
-
-    Py_InitializeEx(0);
-    PyEval_InitThreads();
-    
-    main_thr = PyThreadState_Get();
-    pie_module = init_module();
-
-    PyThreadState_Swap(main_thr);
-    setup_venv(global_state.venv);
-    application = load_app(global_state.app);
-
-    wsgi_stderr = (PyObject*)PyObject_New(ErrorObject, &ErrorType);
-    PySys_SetObject("stderr", wsgi_stderr);
-
-    PyEval_ReleaseThread(main_thr);
-}
-
-void pie_main(struct thread_data *thrdata) {
-    PyThreadState *py_thr;
-    PyInterpreterState *py_main_is;
-    RequestObject *request;
-
-    py_main_is = main_thr->interp;
-    py_thr = PyThreadState_New(py_main_is);
-    thrdata->py_thr = py_thr;
-
-    PyEval_AcquireThread(py_thr);
-
-    request = (RequestObject *)PyObject_New(RequestObject, &RequestType);
-    request->req.input = NULL;
-    request->resp.headers_sent = 0;
-    request->resp.status = NULL;
-    request->resp.headers = NULL;
-
-    pie_buffer_init(&request->req.buffer);
-    pie_buffer_set_reader(&request->req.buffer, req_buffer_do_read, request);
-
-    pie_buffer_init(&request->resp.buffer);
-    pie_buffer_set_writer(&request->resp.buffer, resp_buffer_do_write, request);
-
-    PyEval_ReleaseThread(py_thr);
-
-    while(global_state.running) {
-        int fd = accept(global_state.fd, NULL, NULL);
-        if(fd >= 0) {
-            request->fd = fd;
-            handle_request(request, py_thr);
-            request->fd = -1;
-            close(fd);
-        } else if(errno != EMFILE && errno != ENFILE && errno != EINTR) {
-            perror("accept");
-            break;
-        }
-
-        pie_buffer_restart(&request->req.buffer);
-        pie_buffer_restart(&request->resp.buffer);
-    }
-
-    pie_buffer_free_data(&request->req.buffer);
-    pie_buffer_free_data(&request->resp.buffer);
-
-    PyEval_AcquireThread(main_thr);
-    thrdata->py_thr = NULL;
-    Py_DECREF(request);
-    PyThreadState_Clear(py_thr);
-    PyThreadState_Delete(py_thr);
-    PyEval_ReleaseThread(main_thr);
-
-    pthread_mutex_lock(&thrdata->dead_mutex);
-    thrdata->dead = 1;
-    pthread_cond_signal(&thrdata->dead_cond);
-    pthread_mutex_unlock(&thrdata->dead_mutex);
-}
-
-static int timed_wait_dead(struct thread_data *thrdata, int seconds) {
-    struct timespec ts;
-    int result = 0;
-
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += 5;
-
-    pthread_mutex_lock(&thrdata->dead_mutex);
-    while(!thrdata->dead) {
-        result = pthread_cond_timedwait(&thrdata->dead_cond, &thrdata->dead_mutex, &ts);
-        if(result == ETIMEDOUT)
-            break;
-        else
-            result = 0;
-    }
-    pthread_mutex_unlock(&thrdata->dead_mutex);
-
-    return 0;
-}
-
-void pie_signal_stop(struct thread_data *thrdata) {
-    /* give a few seconds to exit on its own */
-    if(timed_wait_dead(thrdata, 5) == 0)
-        return;
-
-    /* raise SystemExit in the thread */
-    PyEval_AcquireThread(main_thr);
-    if(thrdata->py_thr != NULL) {
-        Py_INCREF(PyExc_SystemExit);
-        PyThreadState_SetAsyncExc(thrdata->py_thr->thread_id, PyExc_SystemExit);
-    }
-    PyEval_ReleaseThread(main_thr);
-}
-
-void pie_finish(void) {
-    PyEval_AcquireThread(main_thr);
-    Py_Finalize();
+    return m;
 }
