@@ -9,20 +9,20 @@ if os.name == 'posix':
     extra_compile_args = ['-fvisibility=hidden']
 
 setup(
-    name='scgi-pie',
-    version='1.0',
-    description='lightweight and threaded SCGI server for Python WSGI applications',
-    author='Robin Schoonover',
-    author_email='robin@cornhooves.org',
+    name = 'scgi-pie',
+    version = '1.0',
+    description = 'lightweight and threaded SCGI server for Python WSGI applications',
+    author = 'Robin Schoonover',
+    author_email = 'robin@cornhooves.org',
     packages = ['scgi_pie'],
-    ext_modules=[
+    ext_modules = [
         Extension('_scgi_pie', ['src/pie.c', 'src/buffer.c'],
                   extra_compile_args=extra_compile_args)
     ],
-    scripts=['scripts/scgi-pie'],
+    scripts = ['scripts/scgi-pie'],
     classifiers = [
         'Development Status :: 4 - Beta',
-        'Environment :: Console',
+        'Environment :: No Input/Output (Daemon)',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
