@@ -9,18 +9,10 @@ At present it only supports Python 3.3 and newer.
 Installing
 ==========
 
-Currently, the configure script is python, and generates flags based on the
-version of python used to run it, so run it like this::
+scgi-pie uses a setup.py script in the usual fashion, like so::
 
-    $ python3.3 ./configure.py
-
-This will generate a Makefile::
-
-    $ make
-    # make install
-
-If a virtual environment is used to run the configure script, the install 
-location will default to the environment.
+    $ python3.3 ./setup.py build
+    # python3.3 ./setup.py install
 
 Running
 =======
