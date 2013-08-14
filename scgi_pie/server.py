@@ -13,7 +13,6 @@ class ServerThread(Thread):
         Thread.__init__(self)
 
     def run(self):
-        print("Starting...")
         self.request.accept_loop()
 
 class WSGIServer(object):
