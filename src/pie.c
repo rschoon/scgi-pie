@@ -1109,9 +1109,6 @@ PyMODINIT_FUNC
 PyInit__scgi_pie(void) {
     PyObject *m;
 
-    if(PyType_Ready(&ErrorType) < 0)
-        return NULL;
-
     if(PyType_Ready(&RequestType) < 0)
         return NULL;
 
