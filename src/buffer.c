@@ -27,6 +27,7 @@
 #include <sys/socket.h>
 #include "buffer.h"
 
+#define MIN_SIZE                (1024)
 #define MAX_PERSISTENT_SIZE     (4096)
 #define MAX_SIZE                (262144)
 
@@ -126,7 +127,7 @@ ssize_t pie_buffer_send(PieBuffer *buffer, int fd, size_t len) {
 		char *p = buffer->buffer + buffer->offset;
 		errno = 0;
 		justsent = send(fd, p, len, 0);
-		if(justsent < 0) {
+		if(justsent <= 0) {
 			if(errno == EINTR)
 				continue;
 			if(total > 0)
@@ -142,7 +143,7 @@ ssize_t pie_buffer_send(PieBuffer *buffer, int fd, size_t len) {
 }
 
 int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
-    size_t newsize;
+    size_t newlen;
     int i;
     
     /* move data to beginning of buffer */
@@ -193,15 +194,16 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     }
     
     /* resize space */
-    newsize = buffer->data_size + len;
-    if(newsize >= buffer->buffer_size) {
-        buffer->buffer = realloc(buffer->buffer, len + buffer->data_size + 1);
-        buffer->buffer_size = len + buffer->data_size + 1;
+    newlen = buffer->data_size + len;
+    if(newlen >= buffer->buffer_size) {
+        size_t newsize = ((len + buffer->data_size)/MIN_SIZE + 1)*MIN_SIZE;
+        buffer->buffer = realloc(buffer->buffer, newsize);
+        buffer->buffer_size = newsize;
     }  
     
     /* store */
     memcpy(buffer->buffer + buffer->data_size, data, len);
-    buffer->data_size += len;
+    buffer->data_size = newlen;
     
     return 0;
 }
