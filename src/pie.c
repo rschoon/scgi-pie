@@ -1227,10 +1227,11 @@ static struct PyModuleDef ModuleDef = {
     0,  /* m_free */
 };
 
-
+#if !defined _WIN32 && defined __GNUC__
+__attribute__((visibility("default")))
+#endif
 PyMODINIT_FUNC
-PyInit__scgi_pie(void)
-{
+PyInit__scgi_pie(void) {
     PyObject *m;
 
     if(PyType_Ready(&ErrorType) < 0)
