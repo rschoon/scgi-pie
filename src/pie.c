@@ -21,21 +21,16 @@ static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count
  */
 
 static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
-    if(PyBytes_Check(o)) {
-        Py_INCREF(o);
-        return o;
-    }
-
     if(PyUnicode_Check(o)) {
         o = PyUnicode_AsLatin1String(o);
         if(!o) {
-            PyErr_Format(PyExc_TypeError, "expected %s to be a byte string, "
+            PyErr_Format(PyExc_TypeError, "expected %s to be a string, "
                         "but got non-latin1 unicode", name);
             return NULL;
         }
         return o;
     } else {
-        PyErr_Format(PyExc_TypeError, "expected %s to be a byte string, but got %s",
+        PyErr_Format(PyExc_TypeError, "expected %s to be a string, but got %s",
             name, o->ob_type->tp_name);
         Py_DECREF(o);
         return NULL;
@@ -510,10 +505,12 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
 
     if(!PyArg_ParseTuple(args, "O", &bytes))
         return NULL;
-
-    bytes = to_pybytes_latin1(bytes, "data");
-    if(bytes == NULL)
+ 
+    if(!PyBytes_Check(bytes)) {
+        PyErr_Format(PyExc_TypeError, "write got %s, but expected bytes object.",
+                bytes->ob_type->tp_name);
         return NULL;
+    }
     
     pie_buffer_append(&req->resp.buffer, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
     if(!req->loop_state.allow_buffering) {
@@ -522,7 +519,6 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
         Py_END_ALLOW_THREADS
     }
 
-    Py_DECREF(bytes);          /* to_pybytes_latin1 inc ref'd it */
     Py_INCREF(Py_None);
     return Py_None;
 }
@@ -741,24 +737,19 @@ static void send_result(RequestObject *req, PyObject *result) {
    
     /* Send body */
     while(!!(item = PyIter_Next(iter))) {
-        PyObject *converted;
         const char *bytes;
         int byteslen;
  
-        converted = to_pybytes_latin1(item, "data");
-        Py_DECREF(item);
-
-        if(converted == NULL) {
-            if(PyErr_Occurred() != NULL) {
-                request_print_info(req, stderr);
-                PyErr_Print();
-                PyErr_Clear();
-            }
+        if(!PyBytes_Check(item)) {
+            request_print_info(req, stderr);
+            fprintf(stderr, "Got a %s from iterator, but expected bytes.",
+                    item->ob_type->tp_name);
+            Py_DECREF(item);
             break;
         }
 
-        byteslen = PyBytes_GET_SIZE(converted);
-        bytes = PyBytes_AS_STRING(converted);
+        byteslen = PyBytes_GET_SIZE(item);
+        bytes = PyBytes_AS_STRING(item);
 
         if(byteslen > 0) {
             if(!checked_send_headers) {
@@ -774,7 +765,7 @@ static void send_result(RequestObject *req, PyObject *result) {
             }
         }
 
-        Py_DECREF(converted);
+        Py_DECREF(item);
     }
 
     if(PyErr_Occurred() != NULL) {
