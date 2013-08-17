@@ -993,7 +993,7 @@ static PyObject *load_app(const char *path) {
     return a;
 }
 
-static PyObject* m_load_app(PyObject *self, PyObject *args) {
+static PyObject* m_load_app_from_file(PyObject *self, PyObject *args) {
     const char *path;
 
     if(!PyArg_ParseTuple(args, "s", &path))
@@ -1097,7 +1097,7 @@ static PyObject *m_fallback_app(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef ModuleMethods[] = {
-    {"load_app", (PyCFunction)m_load_app, METH_VARARGS, ""},
+    {"load_app_from_file", (PyCFunction)m_load_app_from_file, METH_VARARGS, ""},
     {"fallback_app", (PyCFunction)m_fallback_app, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL}
 };

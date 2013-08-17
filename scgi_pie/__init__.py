@@ -19,5 +19,5 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-from _scgi_pie import load_app
+from _scgi_pie import load_app_from_file
 from .server import WSGIServer

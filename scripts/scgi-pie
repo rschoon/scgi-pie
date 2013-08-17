@@ -22,6 +22,7 @@
 # THE SOFTWARE.
 
 import argparse
+import importlib
 import os
 import sys
 import threading
@@ -42,7 +43,8 @@ python_argp.add_argument('--add-dirname-to-path', action='store_true', help="Add
 python_argp.add_argument('--buffering', help="Allow buffering of response output.  "
                          "This violates WSGI spec, but can give a small performance boost")
 python_argp.add_argument('--validator', action='store_true', help='Add wsgiref.validator middleware')
-python_argp.add_argument('application')
+python_argp.add_argument('--module', '-m', help="Load application from module path")
+python_argp.add_argument('application', default=None)
 
 args = argp.parse_args()
 
@@ -94,10 +96,18 @@ sys.stderr = flushfile(sys.stderr)
 # Load App
 #
 
-if args.add_dirname_to_path:
-    sys.path.insert(0, os.path.dirname(args.application))
+if args.module is None:
+    if args.add_dirname_to_path:
+        sys.path.insert(0, os.path.dirname(args.application))
 
-application = scgi_pie.load_app(args.application)
+    application = scgi_pie.load_app_from_file(args.application)
+else:
+    if args.add_dirname_to_path:
+        sys.stderr.write("Warning: ignoring --add-dirname-to-path option because app from module")
+
+    m = importlib.import_module(args.module)
+    application = getattr(m, args.application or "application")
+
 
 if args.validator:
     from wsgiref.validate import validator
