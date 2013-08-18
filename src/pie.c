@@ -299,7 +299,6 @@ typedef struct {
         long thread_id;
 
         PyObject *application;
-        PyObject *stderr;
         int allow_buffering;
         int listen_fd;
     } loop_state;
@@ -335,8 +334,6 @@ static PyObject *request_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         req->loop_state.application = NULL;
         req->loop_state.allow_buffering = 0;
         req->loop_state.listen_fd = -1;
-        req->loop_state.stderr = PySys_GetObject("stderr");
-        Py_INCREF(req->loop_state.stderr);
 
         req->req.input = NULL;
         req->resp.headers_sent = 0;
@@ -370,7 +367,6 @@ static void request_dealloc(PyObject* self) {
     RequestObject *req = (RequestObject *)self;
 
     Py_CLEAR(req->loop_state.application);
-    Py_CLEAR(req->loop_state.stderr);
     Py_CLEAR(req->req.input);
     Py_CLEAR(req->resp.status);
     Py_CLEAR(req->resp.headers);
@@ -599,21 +595,21 @@ static int request_TypeCheck(PyObject *self) {
     return PyObject_TypeCheck(self, &RequestType);
 }
 
-static void request_print_info(RequestObject *req, FILE *out) {
+static void request_print_info(RequestObject *req) {
     if(req->req.environ != NULL) {
         PyObject *value;
 
-        fprintf(out, "\n");
+        PySys_WriteStderr("\n");
 
         value = PyDict_GetItemString(req->req.environ, "SCRIPT_NAME");
         if(value != NULL && PyUnicode_Check(value))
-            fprintf(out, "SN=%s ", PyUnicode_AsUTF8(value));
+            PySys_FormatStderr("SN=%s ", PyUnicode_AsUTF8(value));
 
         value = PyDict_GetItemString(req->req.environ, "PATH_INFO");
         if(value != NULL && PyUnicode_Check(value))
-            fprintf(out, "PI=%s ", PyUnicode_AsUTF8(value));
+            PySys_FormatStderr("PI=%s ", PyUnicode_AsUTF8(value));
 
-         fprintf(out, "\n");
+        PySys_WriteStderr("\n");
     }
 }
 
@@ -673,7 +669,7 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
                             "wsgi.multithread", 1,
                             "wsgi.multiprocess", 1,  /* who knows ? */
                             "wsgi.run_once", 0,
-                            "wsgi.errors", req->loop_state.stderr,
+                            "wsgi.errors", PySys_GetObject("stderr"),
                             "wsgi.input", req->req.input,
                             "SCRIPT_NAME", "",
                             "REQUEST_METHOD", "GET",
@@ -743,15 +739,15 @@ static void send_result(RequestObject *req, PyObject *result) {
     int checked_send_headers = 0;
 
     if(result == NULL) {
-        request_print_info(req, stderr);
-        fprintf(stderr, "Somehow got NULL from application.\n");
+        request_print_info(req);
+        PySys_WriteStderr("Somehow got NULL from application.\n");
         return;
     }             
 
     iter = PyObject_GetIter(result);
     if(iter == NULL) {
-        request_print_info(req, stderr);
-        fprintf(stderr, "Got a non-iterable from application:\n");
+        request_print_info(req);
+        PySys_WriteStderr("Got a non-iterable from application:\n");
         PyErr_Print();
         return;
     }
@@ -762,8 +758,8 @@ static void send_result(RequestObject *req, PyObject *result) {
         int byteslen;
  
         if(!PyBytes_Check(item)) {
-            request_print_info(req, stderr);
-            fprintf(stderr, "Got a %s from iterator, but expected bytes.",
+            request_print_info(req);
+            PySys_WriteStderr("Got a %s from iterator, but expected bytes.",
                     item->ob_type->tp_name);
             Py_DECREF(item);
             break;
@@ -790,8 +786,8 @@ static void send_result(RequestObject *req, PyObject *result) {
     }
 
     if(PyErr_Occurred() != NULL) {
-        request_print_info(req, stderr);
-        fprintf(stderr, "Iterator returned an error:\n");
+        request_print_info(req);
+        PySys_WriteStderr("Iterator returned an error:\n");
         PyErr_Print();
     }
 
@@ -818,7 +814,7 @@ static void close_result(RequestObject *req, PyObject *result) {
         rv = PyEval_CallObject(method, args);
 
         if(rv == NULL) {
-            request_print_info(req, stderr);
+            request_print_info(req);
             PyErr_Print();
             PyErr_Clear();
         }
@@ -861,7 +857,7 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
     arglist = Py_BuildValue("(OO)", environ, start_response);
     result = PyObject_CallObject(req->loop_state.application, arglist);
     if(PyErr_Occurred() != NULL) {
-        request_print_info(req, stderr);
+        request_print_info(req);
         PyErr_Print();
         send_error(req, "uncaught exception");
     } else {
@@ -1081,7 +1077,7 @@ static PyObject *m_fallback_app(PyObject *self, PyObject *args) {
     }
 
     if(!PyCallable_Check(start_response)) {
-        fprintf(stderr, "(fallback) start_response wasn't callable?");
+        PySys_WriteStderr("(fallback) start_response wasn't callable?\n");
         return NULL;
     }
  
