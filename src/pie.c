@@ -53,7 +53,6 @@ static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
     } else {
         PyErr_Format(PyExc_TypeError, "expected %s to be a string, but got %s",
             name, o->ob_type->tp_name);
-        Py_DECREF(o);
         return NULL;
     }
 }
