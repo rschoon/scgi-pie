@@ -241,7 +241,7 @@ static int pull_data_until(PieBuffer *buf, size_t need) {
 int pie_buffer_getchar(PieBuffer *buffer) {
     pull_data_until(buffer, 1);
 
-    if(buffer->buffer != NULL && buffer->offset <= buffer->data_size) {
+    if(buffer->buffer != NULL && buffer->offset < buffer->data_size) {
         return buffer->buffer[buffer->offset++];
     }
     return -1;
