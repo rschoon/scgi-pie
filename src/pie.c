@@ -663,6 +663,16 @@ static int load_headers(RequestObject *req, char ** headers) {
     return header_size;
 }
 
+static int strntol(const char *str, size_t maxlen) {
+    int value = 0;
+    const char *end = str + maxlen;
+    while(str < end && *str >= '0' && *str <= '9') {
+        value = value * 10 + (*str - '0');
+        str++;
+    }
+    return value;
+}
+
 static PyObject *setup_environ(RequestObject *req, char * headers, int header_size) {
     int https = 0;
     char *itr, *end;
@@ -712,10 +722,10 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
             PyDict_SetItemString(environ, "CONTENT_TYPE", value_o);
         } else if(!strncmp(name, "HTTP_CONTENT_LENGTH", namelen)) {
             PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
-            content_length = strtol(value, NULL, 10);
+            content_length = strntol(value, valuelen);
         } else if(!strncmp(name, "CONTENT_LENGTH", namelen)) {
             PyDict_SetItemString(environ, "CONTENT_LENGTH", value_o);
-            content_length = strtol(value, NULL, 10);
+            content_length = strntol(value, valuelen);
         } else if(!strncmp(name, "HTTP_HOST", namelen)) {
             PyDict_SetItemString(environ, "SERVER_NAME", value_o);
             PyDict_SetItemString(environ, name, value_o);
