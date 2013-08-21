@@ -308,6 +308,7 @@ typedef struct {
         PyObject *environ;
         InputObject *input;
         int input_size;       /* remaining from scgi */
+        int reading_input;
     } req;
 
     struct {
@@ -652,13 +653,6 @@ static int load_headers(RequestObject *req, char ** headers) {
         send_error(req, "Problems getting SCGI headers");
         return -1;
     }
-    
-    /* fix oddball off-by-one bug we can get from some servers */
-    if((*headers)[header_size-1] != ',')
-        pie_buffer_getchar(&req->req.buffer);
-
-    /* Deduct bytes already in buffer after headers */
-    req->req.input_size = -pie_buffer_size(buffer);
 
     return header_size;
 }
@@ -742,8 +736,7 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
     Py_DECREF(value_o);
 
     req->req.input->size = content_length;
-    /* this includes bytes already read: (see load_headers) */
-    req->req.input_size += content_length;
+    req->req.input_size = content_length;
 
     req->req.environ = environ;
     return environ;
@@ -863,6 +856,13 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
 
     environ = setup_environ(req, headers, header_size);
 
+    /* fix oddball off-by-one bug we can get from some servers */
+    if(headers[header_size-1] != ',')
+        pie_buffer_getchar(&req->req.buffer);
+    /* remove byte count already sitting in buffer */
+    req->req.input_size -= (int)pie_buffer_size(&req->req.buffer);
+    req->req.reading_input = 1;
+
     /* perform call */
 
     start_response = PyObject_GetAttrString((PyObject*)req, "start_response");
@@ -900,7 +900,7 @@ static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
     char tmp[2048];
     ssize_t justread;
     
-    if(request->req.input != NULL && request->req.input_size <= 0)
+    if(request->req.reading_input && request->req.input_size <= 0)
         return -1;
 
     justread = recv(request->fd, tmp, sizeof(tmp), 0);
@@ -912,7 +912,8 @@ static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
     } else
         pie_buffer_append(buffer, tmp, justread);
 
-    request->req.input_size -= justread;
+    if(request->req.reading_input)
+        request->req.input_size -= justread;
 
     if(request->fd < 0)
         return -1;
@@ -1031,6 +1032,7 @@ static PyObject *request_accept_loop(PyObject *self, PyObject *args) {
         int fd = accept(request->loop_state.listen_fd, NULL, NULL);
         if(fd >= 0) {
             request->fd = fd;
+            request->req.reading_input = 0;
             handle_request(request, py_thr);
             request->fd = -1;
             close(fd);
