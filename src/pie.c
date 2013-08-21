@@ -897,7 +897,7 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
 
 static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
     RequestObject *request = (RequestObject *)udata;
-    char tmp[2048];
+    char tmp[4096];
     ssize_t justread;
     
     if(request->req.reading_input && request->req.input_size <= 0)
