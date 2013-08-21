@@ -652,6 +652,13 @@ static int load_headers(RequestObject *req, char ** headers) {
         send_error(req, "Problems getting SCGI headers");
         return -1;
     }
+    
+    /* fix oddball off-by-one bug we can get from some servers */
+    if((*headers)[header_size-1] != ',')
+        pie_buffer_getchar(&req->req.buffer);
+
+    /* Deduct bytes already in buffer after headers */
+    req->req.input_size = -pie_buffer_size(buffer);
 
     return header_size;
 }
@@ -725,12 +732,12 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
     Py_DECREF(value_o);
 
     req->req.input->size = content_length;
-    req->req.input_size = content_length;
+    /* this includes bytes already read: (see load_headers) */
+    req->req.input_size += content_length;
 
     req->req.environ = environ;
     return environ;
 }
-
 
 static void send_result(RequestObject *req, PyObject *result) {
     PyObject *iter;
@@ -845,10 +852,6 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
     req->resp.headers_sent = 0;
 
     environ = setup_environ(req, headers, header_size);
-    
-    if(headers[header_size-1] != ',')
-        pie_buffer_getchar(&req->req.buffer);
-    req->req.input_size -= pie_buffer_size(&req->req.buffer);
 
     /* perform call */
 
@@ -925,8 +928,6 @@ static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count
         buf += wrote;
     }
     return count;
-
-    return 0;
 }
 
 /*
