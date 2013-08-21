@@ -197,7 +197,12 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     newlen = buffer->data_size + len;
     if(newlen >= buffer->buffer_size) {
         size_t newsize = ((len + buffer->data_size)/MIN_SIZE + 1)*MIN_SIZE;
-        buffer->buffer = realloc(buffer->buffer, newsize);
+        char *newbuffer = realloc(buffer->buffer, newsize);
+        if(newbuffer == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+        buffer->buffer = newbuffer;
         buffer->buffer_size = newsize;
     }  
     
