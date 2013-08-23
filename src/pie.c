@@ -970,9 +970,8 @@ static PyObject *load_app(const char *path) {
     }
 
     f = fopen(path, "r");
-    if(path == NULL) {
+    if(f == NULL)
         return PyErr_SetFromErrno(PyExc_OSError);
-    }
 
     m = new_blank_module("__wsgi_main__");
     d = PyModule_GetDict(m);
