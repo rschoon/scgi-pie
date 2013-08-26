@@ -352,13 +352,22 @@ static PyObject *request_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
 static int request_init(PyObject *self, PyObject *args, PyObject *kwds) {
     RequestObject *req = (RequestObject *)self;
-    static char *kwlist[] = { "application", "listen_socket", "allow_buffering", NULL };
+    static char *kwlist[] = {
+        "application", "listen_socket",
+        "allow_buffering", "buffer_size", NULL };
+    int buffer_size = 0;
 
-    if(!PyArg_ParseTupleAndKeywords(args, kwds, "Oip", kwlist,
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "Oip|i", kwlist,
                                     &req->loop_state.application,
                                     &req->loop_state.listen_fd,
-                                    &req->loop_state.allow_buffering))
+                                    &req->loop_state.allow_buffering,
+                                    &buffer_size))
         return -1; 
+
+    if(buffer_size >= 1024) {
+        pie_buffer_set_maxsize(&req->req.buffer, buffer_size);
+        pie_buffer_set_maxsize(&req->resp.buffer, buffer_size);
+    }
 
     return 0;
 }

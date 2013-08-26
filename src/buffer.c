@@ -29,7 +29,7 @@
 
 #define MIN_SIZE                (1024)
 #define MAX_PERSISTENT_SIZE     (4096)
-#define MAX_SIZE                (268435456)
+#define MAX_SIZE                (2147483647)
 
 /*
  * Currently we maintain a single buffer.  We realloc to increase the size.

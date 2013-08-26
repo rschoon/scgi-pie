@@ -40,11 +40,16 @@ python_argp = argp.add_argument_group(title='Python Options')
 python_argp.add_argument('--add-dirname-to-path', action='store_true', help="Add path of wsgi app to sys.path")
 python_argp.add_argument('--buffering', help="Allow buffering of response output.  "
                          "This violates WSGI spec, but can give a small performance boost")
+python_argp.add_argument('--buffer-size', default=32768, help="Maximum size of buffers in bytes")
 python_argp.add_argument('--validator', action='store_true', help='Add wsgiref.validator middleware')
 python_argp.add_argument('--module', '-m', help="Load application from module path")
 python_argp.add_argument('application', default=None)
 
 args = argp.parse_args()
+
+if args.buffer_size < 1024:
+    sys.stderr.write("Buffer size is too small.\n")
+    sys.exit(1) 
 
 #
 # Make/Get a socket
@@ -119,7 +124,8 @@ server = scgi_pie.WSGIServer(
         application,
         sock,
         num_threads=args.num_threads,
-        allow_buffering=args.buffering)
+        allow_buffering=args.buffering,
+        buffer_size=args.buffer_size)
 
 #
 # Setup Signals

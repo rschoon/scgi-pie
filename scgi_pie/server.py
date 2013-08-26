@@ -26,10 +26,10 @@ import os
 import _scgi_pie
 
 class ServerThread(Thread):
-    def __init__(self, app, sock, allow_buffering=False):
+    def __init__(self, app, sock, allow_buffering=False, buffer_size=32768):
         self.listen_sock = sock
 
-        self.request = _scgi_pie.Request(app, sock, allow_buffering)
+        self.request = _scgi_pie.Request(app, sock, allow_buffering, buffer_size)
 
         Thread.__init__(self)
 
