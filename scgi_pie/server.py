@@ -21,6 +21,7 @@
 
 import signal
 from threading import Thread
+import os
 
 import _scgi_pie
 
@@ -40,6 +41,7 @@ class WSGIServer(object):
         if hasattr(socket, "detach"):
             socket = socket.detach()
 
+        self.socket = socket
         self.threads = []
         for i in range(num_threads):
             self.threads.append(ServerThread(app, socket, **kwargs))
@@ -60,3 +62,11 @@ class WSGIServer(object):
 
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
         signal.signal(signal.SIGINT, oldh)
+
+    def close(self):
+        if self.socket is not None:
+            os.close(self.socket)
+            self.socket = None
+
+    def __del__(self):
+        self.close()
