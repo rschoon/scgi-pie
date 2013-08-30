@@ -1087,34 +1087,8 @@ static PyObject *request_halt_loop(PyObject *self, PyObject *args) {
  * Module
  */ 
 
-static PyObject *m_fallback_app(PyObject *self, PyObject *args) {
-    PyObject *environ, *start_response;
-    PyObject *sr_args;
-    PyObject *result;
-
-    if(!PyArg_ParseTuple(args, "OO", &environ, &start_response)) {
-        return NULL;
-    }
-
-    if(!PyCallable_Check(start_response)) {
-        PySys_WriteStderr("(fallback) start_response wasn't callable?\n");
-        return NULL;
-    }
- 
-    sr_args = Py_BuildValue("s[(ss)]", "500 Internal Server Error", 
-                                       "Content-Type", "text/plain");
-
-    result = PyEval_CallObject(start_response, sr_args);
-    Py_DECREF(sr_args);
-    Py_XDECREF(result);
-
-    return Py_BuildValue("[s]", "Internal Server Error.\n"
-                                "No application callable was able to be loaded.\n");
-}
-
 static PyMethodDef ModuleMethods[] = {
     {"load_app_from_file", (PyCFunction)m_load_app_from_file, METH_VARARGS, ""},
-    {"fallback_app", (PyCFunction)m_fallback_app, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL}
 };
 
