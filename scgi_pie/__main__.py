@@ -40,7 +40,7 @@ python_argp = argp.add_argument_group(title='Python Options')
 python_argp.add_argument('--add-dirname-to-path', action='store_true', help="Add path of wsgi app to sys.path")
 python_argp.add_argument('--buffering', help="Allow buffering of response output.  "
                          "This violates WSGI spec, but can give a small performance boost")
-python_argp.add_argument('--buffer-size', default=32768, help="Maximum size of buffers in bytes")
+python_argp.add_argument('--buffer-size', type=int, default=32768, help="Maximum size of buffers in bytes")
 python_argp.add_argument('--validator', action='store_true', help='Add wsgiref.validator middleware')
 python_argp.add_argument('--module', '-m', help="Load application from module path")
 python_argp.add_argument('application', default=None)
