@@ -918,8 +918,11 @@ static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
             return -1;
     } else if(justread == 0) {
         return -1;
-    } else
-        pie_buffer_append(buffer, tmp, justread);
+    } else {
+        if(pie_buffer_append(buffer, tmp, justread) < 0) {
+            PyErr_WarnEx(NULL, "scgi-pie: Buffer append failed, buffer size is probably too low", 0);
+        }
+    }
 
     if(request->req.reading_input)
         request->req.input_size -= justread;
