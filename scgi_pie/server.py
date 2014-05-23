@@ -64,9 +64,11 @@ class WSGIServer(object):
         signal.signal(signal.SIGINT, oldh)
 
     def close(self):
-        if self.socket is not None:
+        socket = getattr(self, "socket", None)
+        if socket is not None:
             os.close(self.socket)
             self.socket = None
 
     def __del__(self):
-        self.close()
+        if self is not None:
+            self.close()
