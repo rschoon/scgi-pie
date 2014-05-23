@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013 Robin Schoonover
+ * Copyright (c) 2012-2014 Robin Schoonover
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -91,6 +91,9 @@ ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len) {
     char s[2048];
     ssize_t justread;
     
+    if(len == 0)
+        len = sizeof(s);
+
     while(len > 0) {
         if(len > sizeof(s))
             justread = sizeof(s);
@@ -98,7 +101,7 @@ ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len) {
             justread = len;
 
         justread = recv(fd, s, justread, 0);
-        if(justread == 0) {
+        if(justread > 0) {
             pie_buffer_append(buffer, s, justread);
             len -= justread;
         } else if(errno == EINTR) {
@@ -112,7 +115,7 @@ ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len) {
 }
 
 ssize_t pie_buffer_send(PieBuffer *buffer, int fd, size_t len) {
-	ssize_t justsent;
+    ssize_t justsent;
     ssize_t total = 0;
 
     pull_data_until(buffer, len);
@@ -123,23 +126,23 @@ ssize_t pie_buffer_send(PieBuffer *buffer, int fd, size_t len) {
     if(buffer->offset + len > buffer->data_size)
         len = buffer->data_size - buffer->offset + 1;
 
-	while(len > 0) {
-		char *p = buffer->buffer + buffer->offset;
-		errno = 0;
-		justsent = send(fd, p, len, 0);
-		if(justsent <= 0) {
-			if(errno == EINTR)
-				continue;
-			if(total > 0)
-				return total;
-			return justsent;
-		}
+    while(len > 0) {
+        char *p = buffer->buffer + buffer->offset;
+        justsent = send(fd, p, len, 0);
+        if(justsent <= 0) {
+            if(justsent < 0 && errno == EINTR)
+                continue;
+            if(total > 0)
+                return total;
+            return justsent;
+        }
 
-		len -= justsent;
-		buffer->offset += justsent;
-	}
+        total += justsent;
+        len -= justsent;
+        buffer->offset += justsent;
+    }
 
-	return total;
+    return total;
 }
 
 int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
@@ -197,12 +200,7 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     newlen = buffer->data_size + len;
     if(newlen >= buffer->buffer_size) {
         size_t newsize = ((len + buffer->data_size)/MIN_SIZE + 1)*MIN_SIZE;
-        char *newbuffer = realloc(buffer->buffer, newsize);
-        if(newbuffer == NULL) {
-            errno = ENOMEM;
-            return -1;
-        }
-        buffer->buffer = newbuffer;
+        buffer->buffer = realloc(buffer->buffer, newsize);
         buffer->buffer_size = newsize;
     }  
     
@@ -246,7 +244,7 @@ static int pull_data_until(PieBuffer *buf, size_t need) {
 int pie_buffer_getchar(PieBuffer *buffer) {
     pull_data_until(buffer, 1);
 
-    if(buffer->buffer != NULL && buffer->offset < buffer->data_size) {
+    if(buffer->buffer != NULL && buffer->offset <= buffer->data_size) {
         return buffer->buffer[buffer->offset++];
     }
     return -1;
@@ -257,14 +255,14 @@ size_t pie_buffer_size(PieBuffer *buffer) {
 }
 
 ssize_t pie_buffer_unget(PieBuffer *buffer, size_t len) {
-	if(buffer->offset + len > buffer->data_size) {
-		errno = EINVAL;
-		return -1;
-	}
+    if(buffer->offset + len > buffer->data_size) {
+        errno = EINVAL;
+        return -1;
+    }
 
-	buffer->offset -= len;
+    buffer->offset -= len;
 
-	return 0;
+    return 0;
 }
 
 ssize_t pie_buffer_getptr(PieBuffer *buffer, char **p, size_t len) {
