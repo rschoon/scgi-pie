@@ -1079,7 +1079,7 @@ static PyObject *request_halt_loop(PyObject *self, PyObject *args) {
 
     req->loop_state.listen_fd = -1;
     
-    if(pthread_kill(req->loop_state.thread_id, SIGINT) < 0)
+    if(pthread_kill((pthread_t)req->loop_state.thread_id, SIGINT) < 0)
         perror("pthread_kill");
     
     Py_INCREF(Py_None);
