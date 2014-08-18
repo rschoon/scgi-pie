@@ -104,9 +104,7 @@ ssize_t pie_buffer_recv(PieBuffer *buffer, int fd, size_t len) {
         if(justread > 0) {
             pie_buffer_append(buffer, s, justread);
             len -= justread;
-        } else if(errno == EINTR) {
-            justread = 0;
-        } else {
+        } else if(errno != EINTR) {
             return justread;
         }
     }
@@ -149,6 +147,9 @@ int pie_buffer_append(PieBuffer *buffer, const char *data, size_t len) {
     size_t newlen;
     int i;
     
+    if(len == 0 || data == NULL)
+        return 0;
+
     /* move data to beginning of buffer */
     if(buffer->buffer != NULL && buffer->offset > 0 && len+buffer->offset>=buffer->buffer_size) {
         memmove(buffer->buffer,
