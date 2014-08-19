@@ -467,6 +467,7 @@ int filewrapper_accel_linux_sendfile(int infd, int outfd) {
             /* TODO spit out an error */
             break;
         }
+        offset += gotbytes;
         remaining -= gotbytes;
     }
 
