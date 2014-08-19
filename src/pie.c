@@ -29,6 +29,7 @@
 
 #include "buffer.h"
 
+static int filewrapper_TypeCheck(PyObject *self);
 static int input_TypeCheck(PyObject *self);
 static int request_TypeCheck(PyObject *self);
 
@@ -281,6 +282,181 @@ static PyTypeObject InputType = {
 
 static int input_TypeCheck(PyObject *self) {
     return PyObject_TypeCheck(self, &InputType);
+}
+
+/*
+ * File Wrapper
+ */
+
+typedef struct {
+    PyObject_HEAD
+
+    PyObject *object;
+    int chunk_size;
+} FileWrapperObject;
+
+static void filewrapper_dealloc(FileWrapperObject* self) {
+    Py_DECREF(self->object);
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyObject *filewrapper_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
+    FileWrapperObject *self;
+
+    self = (FileWrapperObject *)type->tp_alloc(type, 0);
+    if (self != NULL) {
+        Py_INCREF(Py_None);
+        self->object = Py_None;
+        self->chunk_size = 8192;
+    }
+
+    return (PyObject *)self;
+}
+
+static int filewrapper_init(FileWrapperObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *fileobj = NULL;
+    int chunk_size = -1;
+    static char *kwlist[] = {"fileobj", "chunk_size", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|i", kwlist,
+                                      &fileobj,
+                                      &chunk_size))
+        return -1;
+
+    Py_INCREF(fileobj);
+    Py_DECREF(self->object);
+    self->object = fileobj;
+
+    if(chunk_size > 0)
+        self->chunk_size = chunk_size;
+
+    return 0;
+}
+
+static PyObject *filewrapper_close(PyObject *self, PyObject *args) {
+    if(filewrapper_TypeCheck(self)) {
+        FileWrapperObject *fw = (FileWrapperObject *)self;
+        if(fw->object != NULL) {
+            PyObject *close_method = PyObject_GetAttrString(fw->object, "close");
+            if(close_method != NULL) {
+                PyObject *rv = PyObject_CallFunction(close_method, NULL);
+                Py_XDECREF(rv);
+                Py_DECREF(close_method);
+            }
+
+            PyErr_Clear();
+        }
+    }
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *filewrapper_read(PyObject *self, PyObject *args) {
+    FileWrapperObject *fw;
+    PyObject *rv, *read_method;
+
+    if(!filewrapper_TypeCheck(self)) {
+        PyErr_Format(PyExc_TypeError, "Tried to call on invalid object.");
+        return NULL;
+    }
+
+    fw = (FileWrapperObject *)self;
+    read_method = PyObject_GetAttrString(fw->object, "read");
+    if(read_method == NULL)
+        return NULL;
+
+    rv = PyObject_CallObject(read_method, args);
+    Py_DECREF(read_method);
+    return rv;
+}
+
+static PyObject *filewrapper_iter(PyObject *self) {
+    Py_INCREF(self);
+    return (PyObject*)self;
+}
+
+static PyObject *filewrapper_iternext(PyObject *self) {
+    PyObject *read_method;
+    PyObject *args, *rv;
+    FileWrapperObject *fw;
+
+    if(!filewrapper_TypeCheck(self)) {
+        PyErr_Format(PyExc_TypeError, "Tried to call on invalid object.");
+        return NULL;
+    }
+
+    fw = (FileWrapperObject *)self;
+    read_method = PyObject_GetAttrString(fw->object, "read");
+    if(read_method == NULL)
+        return NULL;
+
+    args = Py_BuildValue("(i)", fw->chunk_size);
+    rv = PyObject_CallObject(read_method, args);
+    Py_DECREF(args);
+
+    if(rv != NULL) {
+        if(PyObject_Length(rv) == 0) {
+            Py_DECREF(rv);
+            PyErr_SetNone(PyExc_StopIteration);
+            rv = NULL;
+        }
+    }
+
+    return rv;
+}
+
+static PyMethodDef FileWrapperMethods[] = {
+    {"close", (PyCFunction)filewrapper_close, METH_VARARGS, "close"},
+    {"read", (PyCFunction)filewrapper_read, METH_VARARGS, "read"},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyTypeObject FileWrapperType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "scgi_pie.FileWrapper",    /*tp_name*/
+    sizeof(FileWrapperObject), /*tp_basicsize*/
+    0,                         /*tp_itemsize*/
+    (destructor)filewrapper_dealloc, /*tp_dealloc*/
+    0,                         /*tp_print*/
+    0,                         /*tp_getattr*/
+    0,                         /*tp_setattr*/
+    0,                         /*tp_compare*/
+    0,                         /*tp_repr*/
+    0,                         /*tp_as_number*/
+    0,                         /*tp_as_sequence*/
+    0,                         /*tp_as_mapping*/
+    0,                         /*tp_hash */
+    0,                         /*tp_call*/
+    0,                         /*tp_str*/
+    0,                         /*tp_getattro*/
+    0,                         /*tp_setattro*/
+    0,                         /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT,        /*tp_flags*/
+    "wsgi.file_wrapper",       /*tp_doc */
+    0,                         /*tp_traverse */
+    0,                         /*tp_clear */
+    0,                         /*tp_richcompare */
+    0,                         /*tp_weaklistoffset */
+    (getiterfunc)filewrapper_iter,   /*tp_iter */
+    (iternextfunc)filewrapper_iternext, /*tp_iternext */
+    FileWrapperMethods,        /*tp_methods */
+    0,                         /*tp_members*/
+    0,                         /*tp_getset*/
+    0,                         /*tp_base*/
+    0,                         /*tp_dict*/
+    0,                         /*tp_descr_get*/
+    0,                         /*tp_descr_set*/
+    0,                         /*tp_dictoffset*/
+    (initproc)filewrapper_init,/*tp_init*/
+    0,                         /*tp_alloc*/
+    filewrapper_new,           /*tp_new*/
+    0,                         /*tp_free*/
+    0,                         /*tp_is_gc*/
+};
+
+static int filewrapper_TypeCheck(PyObject *self) {
+    return PyObject_TypeCheck(self, &FileWrapperType);
 }
 
 /*
@@ -683,13 +859,14 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
     PyObject *value_o;
     int content_length = -1;
 
-    environ = Py_BuildValue("{sNsisisisOsOssssssssss}",
+    environ = Py_BuildValue("{sNsisisisOsOsOssssssssss}",
                             "wsgi.version", Py_BuildValue("(ii)", 1, 0),
                             "wsgi.multithread", 1,
                             "wsgi.multiprocess", 1,  /* who knows ? */
                             "wsgi.run_once", 0,
                             "wsgi.errors", PySys_GetObject("stderr"),
                             "wsgi.input", req->req.input,
+                            "wsgi.file_wrapper", (PyObject*)&FileWrapperType,
                             "SCRIPT_NAME", "",
                             "REQUEST_METHOD", "GET",
                             "PATH_INFO", "",
@@ -1118,6 +1295,9 @@ PyInit__scgi_pie(void) {
         return NULL;
 
     if(PyType_Ready(&InputType) < 0)
+        return NULL;
+
+    if (PyType_Ready(&FileWrapperType) < 0)
         return NULL;
 
     m = PyModule_Create(&ModuleDef);
