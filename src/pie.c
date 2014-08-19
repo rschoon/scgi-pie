@@ -25,6 +25,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#ifdef __linux__
+#include <sys/sendfile.h>
+#endif
+
 #include <Python.h>
 
 #include "buffer.h"
@@ -37,6 +41,57 @@ static PyObject *request_accept_loop(PyObject *self, PyObject *args);
 static PyObject *request_halt_loop(PyObject *self, PyObject *args);
 static int req_buffer_do_read(PieBuffer *buffer, void *udata);
 static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count, void *udata);
+
+/*
+ * Object Definitions
+ */
+
+typedef struct {
+    PyObject_HEAD
+
+    PieBuffer *buffer;
+    int size;       /* remaining to send to python */
+} InputObject;
+
+typedef struct {
+    PyObject_HEAD
+
+    PyObject *object;
+    int chunk_size;
+} FileWrapperObject;
+
+typedef struct {
+    PyObject_HEAD
+
+    int fd;
+
+    struct loop_state {
+        int quitting;
+        int in_accept;
+        long thread_id;
+
+        PyObject *application;
+        int allow_buffering;
+        int listen_fd;
+    } loop_state;
+
+    struct {
+        PieBuffer buffer;
+
+        PyObject *environ;
+        InputObject *input;
+        int input_size;       /* remaining from scgi */
+        int reading_input;
+    } req;
+
+    struct {
+        PieBuffer buffer;
+
+        int headers_sent;
+        PyObject *status;
+        PyObject *headers;
+    } resp;
+} RequestObject;
 
 /*
  * Utility
@@ -61,13 +116,6 @@ static PyObject* to_pybytes_latin1(PyObject *o, const char *name) {
 /*
  * Input Object
  */
-
-typedef struct {
-    PyObject_HEAD
-
-    PieBuffer *buffer;
-    int size;       /* remaining to send to python */
-} InputObject;
 
 static PyObject *input_close(PyObject *self, PyObject *args) {
     if(input_TypeCheck(self))
@@ -288,13 +336,6 @@ static int input_TypeCheck(PyObject *self) {
  * File Wrapper
  */
 
-typedef struct {
-    PyObject_HEAD
-
-    PyObject *object;
-    int chunk_size;
-} FileWrapperObject;
-
 static void filewrapper_dealloc(FileWrapperObject* self) {
     Py_DECREF(self->object);
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -406,6 +447,56 @@ static PyObject *filewrapper_iternext(PyObject *self) {
     return rv;
 }
 
+#ifdef __linux__
+int filewrapper_accel_linux_sendfile(int infd, int outfd) {    
+    off_t offset;
+    off_t remaining;
+    struct stat statinfo;
+
+    offset = lseek(infd, 0, SEEK_CUR);
+    if(offset < 0)
+        return -1;
+
+    if(fstat(infd, &statinfo) < 0)
+        return -1;
+
+    remaining = statinfo.st_size - offset;
+    while(remaining > 0) {
+        ssize_t gotbytes = sendfile(outfd, infd, &offset, remaining);
+        if(gotbytes < 0 && (errno != EINTR && errno != EAGAIN)) {
+            /* TODO spit out an error */
+            break;
+        }
+        remaining -= gotbytes;
+    }
+
+    return 0;
+}
+#endif
+
+static int filewrapper_accel(FileWrapperObject *self, RequestObject *req) {
+    int rv = -1;
+    int outfd = req->fd;
+    int infd;
+
+    infd = PyObject_AsFileDescriptor(self->object);
+    if(infd < 0) {
+        PyErr_Clear();
+        return -1;
+    }
+
+    Py_BEGIN_ALLOW_THREADS
+    pie_buffer_flush(&req->resp.buffer);
+
+#ifdef __linux__
+    if(rv < 0)
+        rv = filewrapper_accel_linux_sendfile(infd, outfd);
+#endif
+    Py_END_ALLOW_THREADS
+
+    return rv;
+}
+
 static PyMethodDef FileWrapperMethods[] = {
     {"close", (PyCFunction)filewrapper_close, METH_VARARGS, "close"},
     {"read", (PyCFunction)filewrapper_read, METH_VARARGS, "read"},
@@ -462,39 +553,6 @@ static int filewrapper_TypeCheck(PyObject *self) {
 /*
  * Request Object
  */
-
-typedef struct {
-    PyObject_HEAD
-
-    int fd;
-
-    struct loop_state {
-        int quitting;
-        int in_accept;
-        long thread_id;
-
-        PyObject *application;
-        int allow_buffering;
-        int listen_fd;
-    } loop_state;
-
-    struct {
-        PieBuffer buffer;
-
-        PyObject *environ;
-        InputObject *input;
-        int input_size;       /* remaining from scgi */
-        int reading_input;
-    } req;
-
-    struct {
-        PieBuffer buffer;
-
-        int headers_sent;
-        PyObject *status;
-        PyObject *headers;
-    } resp;
-} RequestObject;
 
 static PyObject *request_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     RequestObject *req;
@@ -937,7 +995,16 @@ static void send_result(RequestObject *req, PyObject *result) {
         request_print_info(req);
         PySys_WriteStderr("Somehow got NULL from application.\n");
         return;
-    }             
+    }
+
+    if(filewrapper_TypeCheck(result)) {
+        checked_send_headers = 1;
+        request_send_headers(req);
+
+        pie_buffer_flush(&req->resp.buffer);
+        if(!filewrapper_accel((FileWrapperObject*)result, req))
+            return;
+    }
 
     iter = PyObject_GetIter(result);
     if(iter == NULL) {
