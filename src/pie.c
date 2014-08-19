@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Robin Schoonover
+ * Copyright (c) 2013-2014 Robin Schoonover
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
