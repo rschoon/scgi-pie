@@ -11,8 +11,8 @@ Installing
 
 scgi-pie uses a setup.py script in the usual fashion, like so::
 
-    $ python3.3 ./setup.py build
-    # python3.3 ./setup.py install
+    $ python ./setup.py build
+    # python ./setup.py install
 
 Running
 =======
