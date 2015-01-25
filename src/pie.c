@@ -840,21 +840,33 @@ static int request_TypeCheck(PyObject *self) {
 }
 
 static void request_print_info(RequestObject *req) {
+    char dtbuf[64];
+    time_t now_sec;
+    struct tm now_tm;
+
+    now_sec = time(NULL);
+    if(localtime_r(&now_sec, &now_tm) != NULL) {
+        size_t wr = strftime(dtbuf, sizeof(dtbuf), "%Y-%m-%d %H:%M:%S", &now_tm);
+        if(wr == 0)
+            PySys_WriteStderr("\n[???]");
+        else
+            PySys_WriteStderr("\n[%s]", dtbuf);
+    } else
+        PySys_WriteStderr("\n[???]");
+
     if(req->req.environ != NULL) {
         PyObject *value;
 
-        PySys_WriteStderr("\n");
-
         value = PyDict_GetItemString(req->req.environ, "SCRIPT_NAME");
         if(value != NULL && PyUnicode_Check(value))
-            PySys_FormatStderr("SN=%s ", PyUnicode_AsUTF8(value));
+            PySys_FormatStderr(" SN=%s", PyUnicode_AsUTF8(value));
 
         value = PyDict_GetItemString(req->req.environ, "PATH_INFO");
         if(value != NULL && PyUnicode_Check(value))
-            PySys_FormatStderr("PI=%s ", PyUnicode_AsUTF8(value));
-
-        PySys_WriteStderr("\n");
+            PySys_FormatStderr(" PI=%s", PyUnicode_AsUTF8(value));
     }
+
+    PySys_WriteStderr("\n");
 }
 
 static void send_error(RequestObject *req, const char *error) {
