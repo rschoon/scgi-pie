@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014 Robin Schoonover
+ * Copyright (c) 2013-2015 Robin Schoonover
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -951,16 +951,16 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
         int namelen, valuelen;
 
         /* name */
-        namelen = strnlen(itr, end - itr);
-        name = itr;
-        itr += namelen + 1;
-
-        if(itr >= end)
+        for(name = itr, namelen = 0; itr < end && *itr; namelen++, itr++)
+            ;
+        if(++itr > end)
             break;
 
         /* value */
-        valuelen = strnlen(itr, end - itr);
-        value = itr;
+        for(value = itr, valuelen = 0; itr < end && *itr; valuelen++, itr++)
+            ;
+        if(++itr > end)
+            break;
 
         if(!strncmp(name, "HTTPS", namelen)) {
             if(strncmp(value, "0", valuelen) && strncmp(value, "off", valuelen)) {
@@ -985,7 +985,6 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
         }
 
         Py_DECREF(value_o);
-        itr += valuelen + 1;
     }
 
     value_o = PyUnicode_FromString(https ? "https" : "http");
