@@ -20,4 +20,4 @@
 # THE SOFTWARE.
 
 from _scgi_pie import load_app_from_file
-from .server import WSGIServer
+from .server import WSGIServer, run_once

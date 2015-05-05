@@ -39,6 +39,7 @@ static int request_TypeCheck(PyObject *self);
 
 static PyObject *request_accept_loop(PyObject *self, PyObject *args);
 static PyObject *request_halt_loop(PyObject *self, PyObject *args);
+static PyObject *request_run_once(PyObject *self, PyObject *args);
 static int req_buffer_do_read(PieBuffer *buffer, void *udata);
 static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count, void *udata);
 
@@ -63,7 +64,8 @@ typedef struct {
 typedef struct {
     PyObject_HEAD
 
-    int fd;
+    int write_fd;
+    int read_fd;
 
     struct loop_state {
         int quitting;
@@ -155,7 +157,7 @@ static PyObject *input_read(PyObject *self, PyObject *args) {
 
     if(size < 0)
         size = ((InputObject*)self)->size;
- 
+
     justread = pie_buffer_getptr(buf, &p, size);
     if(justread <= 0)
         return PyBytes_FromString("");
@@ -477,7 +479,7 @@ int filewrapper_accel_linux_sendfile(int infd, int outfd) {
 
 static int filewrapper_accel(FileWrapperObject *self, RequestObject *req) {
     int rv = -1;
-    int outfd = req->fd;
+    int outfd = req->write_fd;
     int infd;
 
     infd = PyObject_AsFileDescriptor(self->object);
@@ -560,7 +562,7 @@ static PyObject *request_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
     req = (RequestObject *)type->tp_alloc(type, 0);
     if(req != NULL) {
-        req->fd = -1;
+        req->write_fd = req->read_fd = -1;
 
         req->loop_state.quitting = 0;
         req->loop_state.in_accept = 0;
@@ -787,6 +789,7 @@ static PyObject *request_write(PyObject *self, PyObject *args) {
 static PyMethodDef RequestMethods[] = {
     {"accept_loop", (PyCFunction)request_accept_loop, METH_VARARGS, ""},
     {"halt_loop", (PyCFunction)request_halt_loop, METH_VARARGS, ""},
+    {"run_once", (PyCFunction)request_run_once, METH_VARARGS, ""},
     {"start_response", (PyCFunction)request_start_response, METH_VARARGS | METH_KEYWORDS, ""},
     {"write", (PyCFunction)request_write, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL},
@@ -934,7 +937,7 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
                             "wsgi.version", Py_BuildValue("(ii)", 1, 0),
                             "wsgi.multithread", 1,
                             "wsgi.multiprocess", 1,  /* who knows ? */
-                            "wsgi.run_once", 0,
+                            "wsgi.run_once", req->read_fd != req->write_fd,
                             "wsgi.errors", PySys_GetObject("stderr"),
                             "wsgi.input", req->req.input,
                             "wsgi.file_wrapper", (PyObject*)&FileWrapperType,
@@ -980,6 +983,7 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
         } else if(!strncmp(name, "HTTP_HOST", namelen)) {
             PyDict_SetItemString(environ, "SERVER_NAME", value_o);
             PyDict_SetItemString(environ, name, value_o);
+        } else if(!strncmp(name, "PATH_INFO", namelen) || !strncmp(name, "SCRIPT_NAME", namelen)) {
         } else {
             PyDict_SetItemString(environ, name, value_o);
         }
@@ -1110,8 +1114,8 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
     /* setup */
 
     header_size = load_headers(req, &headers);
-    
-    PyEval_AcquireThread(py_thr);
+
+    PyEval_RestoreThread(py_thr);
 
     req->req.input = (InputObject *)PyObject_New(InputObject, &InputType);
     req->req.input->buffer = &req->req.buffer;
@@ -1155,7 +1159,7 @@ static void handle_request(RequestObject *req, PyThreadState *py_thr) {
     Py_CLEAR(req->req.input);
 
     req->resp.headers_sent = 1;
-    req->fd = -1;
+    req->read_fd = req->write_fd = -1;
 
     PyEval_ReleaseThread(py_thr);
 }
@@ -1168,7 +1172,7 @@ static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
     if(request->req.reading_input && request->req.input_size <= 0)
         return -1;
 
-    justread = recv(request->fd, tmp, sizeof(tmp), 0);
+    justread = read(request->read_fd, tmp, sizeof(tmp));
     if(justread < 0) {
         if(errno != EINTR)
             return -1;
@@ -1183,7 +1187,7 @@ static int req_buffer_do_read(PieBuffer *buffer, void *udata) {
     if(request->req.reading_input)
         request->req.input_size -= justread;
 
-    if(request->fd < 0)
+    if(request->read_fd < 0)
         return -1;
 
     return 0;
@@ -1195,7 +1199,7 @@ static int resp_buffer_do_write(PieBuffer *buffer, const char *buf, size_t count
     ssize_t left = count;
 
     while(left > 0) {
-        wrote = write(req->fd, buf, left);
+        wrote = write(req->write_fd, buf, left);
         if(wrote <= 0) {
             if(errno == EINTR)
                 wrote = 0;
@@ -1298,10 +1302,10 @@ static PyObject *request_accept_loop(PyObject *self, PyObject *args) {
     while(!request->loop_state.quitting) {
         int fd = accept(request->loop_state.listen_fd, NULL, NULL);
         if(fd >= 0) {
-            request->fd = fd;
+            request->read_fd = request->write_fd = fd;
             request->req.reading_input = 0;
             handle_request(request, py_thr);
-            request->fd = -1;
+            request->read_fd = request->write_fd = -1;
             close(fd);
         } else if(errno != EMFILE && errno != ENFILE && errno != EINTR) {
             PyEval_RestoreThread(py_thr);
@@ -1338,6 +1342,36 @@ static PyObject *request_halt_loop(PyObject *self, PyObject *args) {
     if(pthread_kill((pthread_t)req->loop_state.thread_id, SIGINT) < 0)
         perror("pthread_kill");
     
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *request_run_once(PyObject *self, PyObject *args) {
+    PyThreadState *py_thr;
+    RequestObject *request = (RequestObject *)self;
+    int stdin, stdout;
+
+    if(!request_TypeCheck(self)) {
+        PyErr_SetString(PyExc_TypeError, "expected request object");
+        return NULL;
+    }
+
+    if(!PyArg_ParseTuple(args, "ii", &stdin, &stdout))
+        return NULL;
+
+    request->loop_state.in_accept = 1;
+    request->loop_state.thread_id = PyThreadState_Get()->thread_id;
+    py_thr = PyEval_SaveThread();
+
+    request->read_fd = stdin;
+    request->write_fd = stdout;
+    request->req.reading_input = 0;
+    handle_request(request, py_thr);
+    request->loop_state.in_accept = 0;
+    request->read_fd = request->write_fd = -1;
+
+    PyEval_RestoreThread(py_thr);
+
     Py_INCREF(Py_None);
     return Py_None;
 }

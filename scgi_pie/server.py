@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2013 Robin Schoonover
+# Copyright (c) 2013-2015 Robin Schoonover
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -72,3 +72,7 @@ class WSGIServer(object):
     def __del__(self):
         if self is not None:
             self.close()
+
+def run_once(app, stdin, stdout, allow_buffering=False, buffer_size=32768):
+    req = _scgi_pie.Request(app, -1, allow_buffering, buffer_size)
+    return req.run_once(stdin.fileno(), stdout.fileno())

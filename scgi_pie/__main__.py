@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2013 Robin Schoonover
+# Copyright (c) 2013-2015 Robin Schoonover
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -35,6 +35,7 @@ proc_argp.add_argument('--fd', type=int, help="Use inherited file descriptor as 
 proc_argp.add_argument('--unix-socket', '--unix', '-s', type=argparse.FileType, help="Bind to Unix domain socket on path")
 proc_argp.add_argument('--socket-mode', '-M', type=lambda a: int(a, 8), help="Change Unix domain socket path mode")
 proc_argp.add_argument('--stack-size', type=int, help="Stack size of threads in bytes")
+proc_argp.add_argument('--pipe', action='store_true', help='Use stdin/stdout for a single request instead of listening on a socket.')
 
 python_argp = argp.add_argument_group(title='Python Options')
 python_argp.add_argument('--add-dirname-to-path', action='store_true', help="Add path of wsgi app to sys.path")
@@ -55,7 +56,9 @@ if args.buffer_size < 1024:
 # Make/Get a socket
 #
 
-if args.fd is not None:
+if args.pipe:
+    sock = None
+elif args.fd is not None:
     sock = args.fd
 elif args.unix_socket is not None:
     import socket
@@ -116,6 +119,19 @@ if args.validator:
     from wsgiref.validate import validator
     application = validator(application)
 
+kwargs = {
+    'allow_buffering' : args.buffering,
+    'buffer_size' : args.buffer_size
+}
+
+#
+# Run single?
+#
+
+if sock is None:
+    scgi_pie.run_once(application, sys.stdin, sys.stdout, **kwargs)
+    sys.exit(0)
+
 #
 # Create Server
 #
@@ -124,8 +140,8 @@ server = scgi_pie.WSGIServer(
         application,
         sock,
         num_threads=args.num_threads,
-        allow_buffering=args.buffering,
-        buffer_size=args.buffer_size)
+        **kwargs
+)
 
 #
 # Setup Signals
