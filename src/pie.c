@@ -983,7 +983,6 @@ static PyObject *setup_environ(RequestObject *req, char * headers, int header_si
         } else if(!strncmp(name, "HTTP_HOST", namelen)) {
             PyDict_SetItemString(environ, "SERVER_NAME", value_o);
             PyDict_SetItemString(environ, name, value_o);
-        } else if(!strncmp(name, "PATH_INFO", namelen) || !strncmp(name, "SCRIPT_NAME", namelen)) {
         } else {
             PyDict_SetItemString(environ, name, value_o);
         }
